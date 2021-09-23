@@ -634,8 +634,8 @@ class Cube:
         time = os.environ["DATE_SOLVE"]
 
         self.url = ""
-        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve if time != None else "", "({},{})\n".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
-                                                 ")" if not self.success else "", "  {}%".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}\n".format(time))
+        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve if time != None else "", "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
+                                                 ")\n" if not self.success else "", "  {}%".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}\n".format(time))
 
         solve_stats_copy = list(self.solve_stats)
         solve = "{}\nScramble:\n{}\n".format(self.name_of_solve, self.union_moves(self.scramble))
