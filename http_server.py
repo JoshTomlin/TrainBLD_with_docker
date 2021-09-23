@@ -26,6 +26,8 @@ def init_env_var(dict_params):
     os.environ["MEMO"] = dict_params["MEMO"]
     os.environ["SOLVE_TIME_MOVES"] = dict_params["SOLVE_TIME_MOVES"]
     os.environ["DATE_SOLVE"] = dict_params["DATE_SOLVE"]
+    os.environ["ID"] = dict_params["ID"]
+
 
 
 

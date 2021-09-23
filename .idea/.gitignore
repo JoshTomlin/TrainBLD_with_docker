@@ -6,3 +6,5 @@
 /dataSources.local.xml
 # Editor-based HTTP Client requests
 /httpRequests/
+# DB cred
+/../../../../../../../:\Users\rotem\PycharmProjects\Heroku_timer\3BLD_parser\DB_LOGS.py

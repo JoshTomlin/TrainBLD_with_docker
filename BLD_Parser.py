@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import ast
 from bld_comm_parser import solve_parser, reverse_alg, alg_maker
 import permutation
@@ -598,8 +600,8 @@ class Cube:
         time = os.environ["DATE_SOLVE"]
 
         self.url = ""
-        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve, "({},{})%0A".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
-                                                 ")" if not self.success else "", "  {}%25".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}".format(time))
+        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve, "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
+                                                 ")%0A" if not self.success else "", "  {}%25%0A".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}".format(time))
 
 
         solve_stats_copy = list(self.solve_stats)
