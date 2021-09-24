@@ -61,9 +61,11 @@ class S(BaseHTTPRequestHandler):
             address = self.client_address[0]
             self._set_response()
             self.wfile.write(bytearray((solve_str).encode('utf-8')))
-            add_log_of_request(request, address, '200', cube)
+            try:
+                add_log_of_request(request, address, '200', cube)
+            except:
+                add_log_of_request(request, address, '404')
         except Exception as e:
-            add_log_of_request(request, address, '404')
             self.send_error(404, 'error')
 
 

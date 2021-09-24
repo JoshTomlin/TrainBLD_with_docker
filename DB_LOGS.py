@@ -5,6 +5,15 @@ import json
 import time
 from datetime import datetime
 import os
+def convert_to_num(str_num):
+    if ":" not in str_num:
+        return str_num
+    minute = int(str_num.split(':')[0])
+    sec = int(str_num.split(':')[1].split(".")[0])
+    milisec = int(str_num.split(':')[1].split(".")[1])
+    final_num = 60 * minute + sec + milisec/100
+    return final_num
+
 
 def add_log_of_request(request, ip, status, cube=None):
     DB_HOST = "ec2-44-196-44-90.compute-1.amazonaws.com"
@@ -15,9 +24,9 @@ def add_log_of_request(request, ip, status, cube=None):
     id = os.environ["ID"]
     cur_time_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
     if cube:
-        memo_time = cube.memo_time
-        time_solve = cube.time_solve
-        exe_time = cube.exe_time
+        memo_time = convert_to_num(cube.memo_time)
+        time_solve =convert_to_num(cube.time_solve)
+        exe_time = convert_to_num(cube.exe_time)
         fluidness = cube.fluidness
         success = cube.success
 
@@ -29,7 +38,6 @@ def add_log_of_request(request, ip, status, cube=None):
         cur.execute("INSERT INTO LOGS (REQUEST, POST_TXT, POST_URL, STATUS, IP, SOLVE_TIME, EXE, MEMO, FLUIDNESS, DATE, SUCCESS, ID) VALUES (%s,%s,%s,%s,%s,%s,%s, %s, %s, %s, %s, %s)", (json.dumps(post_data, ensure_ascii=False).encode('utf-8').decode('utf-8'),cube.parsed_solve["txt"],cube.parsed_solve["cubedb"], status, ip, time_solve, exe_time, memo_time, fluidness, cur_time_str, success, id))
     else:
         cur.execute("INSERT INTO LOGS (REQUEST, STATUS, IP,DATE, ID ) VALUES (%s,%s,%s,%s,%s)", (json.dumps(post_data),status, ip, cur_time_str,id))
-
     conn.commit()
     cur.close()
     conn.close()

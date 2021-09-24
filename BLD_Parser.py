@@ -550,8 +550,8 @@ class Cube:
                     self.solve_stats[i]['comment']['alg_time'] = alg_time
         if with_time:
             self.pause_time = round(float(self.exe_time) - self.exe_no_pause_time,2)
-            self.fluidness = round((self.exe_no_pause_time/float(self.exe_time))*100,2)
 
+            self.fluidness = round((self.exe_no_pause_time/float(self.exe_time))*100,2)
     def union_moves(self,alg_str):
         moves = alg_str.split()
         final_alg = []
@@ -1171,21 +1171,22 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.find_mistake()
     # print(*cube.solve_stats, sep="\n")
 
+
     cube.success = True if cube.solve_stats[-1]['cor'] == 8 and cube.solve_stats[-1]['ed'] == 12 else False
     cube.memo_time = round(float(os.environ["MEMO"]), 2) if len(os.environ["MEMO"]) > 0  else 0.0
     cube.time_solve = round(float(os.environ["TIME_SOLVE"]), 2) if len(os.environ["TIME_SOLVE"]) > 0 else 0.0
     cube.exe_time = abs(round(cube.time_solve - cube.memo_time,2))
 
-    cube.memo_time = convert_to_format(cube.memo_time) if len(os.environ["MEMO"]) > 0 else ""
-    cube.time_solve = convert_to_format(cube.time_solve) if len(os.environ["TIME_SOLVE"]) > 0 else ""
-    cube.exe_time = convert_to_format(cube.exe_time) if len(os.environ["TIME_SOLVE"]) > 0 and len(os.environ["MEMO"]) > 0 else ""
     cube.calc_alg_times()
-
+    if 'parse_lp' not in cube.solve_stats[-1]["comment"]:
+        cube.fluidness = ""
     cube.second_time = True
     if cube.smart_cube:
         cube.parse_to_slice_moves_second()
 
-
+    cube.memo_time = convert_to_format(cube.memo_time) if len(os.environ["MEMO"]) > 0 else ""
+    cube.time_solve = convert_to_format(cube.time_solve) if len(os.environ["TIME_SOLVE"]) > 0 else ""
+    cube.exe_time = convert_to_format(cube.exe_time) if len(os.environ["TIME_SOLVE"]) > 0 and len(os.environ["MEMO"]) > 0 else ""
 
     if cube.gen_parsed_to_cubedb:
         cube.parsed_solve["cubedb"] = cube.gen_url_2()
