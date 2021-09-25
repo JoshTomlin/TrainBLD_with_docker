@@ -35,6 +35,7 @@ def parse(dict_params):
     init_env_var(dict_params)
     cube = parse_solve(dict_params["SCRAMBLE"], dict_params["SOLVE"])
     parsed_solve = json.dumps(cube.parsed_solve)
+
     return (parsed_solve,cube)
 
 class S(BaseHTTPRequestHandler):
@@ -55,6 +56,7 @@ class S(BaseHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
             request = self.rfile.read(content_length)  # <--- Gets the data itself
             post_data = json.loads(request)
+
             data = parse(post_data)
             solve_str = data[0]
             cube = data[1]
@@ -71,9 +73,9 @@ class S(BaseHTTPRequestHandler):
 
 
 def run_http_server():
-    PORT = os.environ['PORT']
-    server_address = ('0.0.0.0', int(PORT))
-    # server_address = ('127.0.0.1', 8080)
+    # PORT = os.environ['PORT']
+    # server_address = ('0.0.0.0', int(PORT))
+    server_address = ('127.0.0.1', 8080)
     httpd = http.server.HTTPServer(server_address, S)
     httpd.serve_forever()
 

@@ -561,8 +561,7 @@ class Cube:
             if m == '':
                 moves.remove(m)
         while len(moves) > 1:
-
-            if (moves[1] == moves[0]):
+            if (moves[1] == moves[0] and not ('2' in moves[1] and '2' in moves[0])):
                 moves[1] = "{}2".format(moves[1][0])
                 moves.remove(moves[0])
             final_alg.append(moves[0])
@@ -1101,6 +1100,7 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
         solved_edges =  cube.count_solve_edges()
         solved_cor = cube.count_solved_cor()
         diff = cube.diff_states(cube.perm_to_string(cube.current_perm))
+
         if diff > cube.diff_to_solved_state and (count - max_piece_place >= 4) and diff != 1:
             temp_count = count - max_piece_place
             max_piece_place = count
@@ -1169,7 +1169,6 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
             cube.solve_stats[0]['comment']['alg_str'] = [mistake_alg]
 
     cube.find_mistake()
-    # print(*cube.solve_stats, sep="\n")
 
 
     cube.success = True if cube.solve_stats[-1]['cor'] == 8 and cube.solve_stats[-1]['ed'] == 12 else False
@@ -1178,11 +1177,14 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.exe_time = abs(round(cube.time_solve - cube.memo_time,2))
 
     cube.calc_alg_times()
+
     if 'parse_lp' not in cube.solve_stats[-1]["comment"]:
         cube.fluidness = ""
+
     cube.second_time = True
     if cube.smart_cube:
         cube.parse_to_slice_moves_second()
+    print(*cube.solve_stats, sep="\n")
 
     cube.memo_time = convert_to_format(cube.memo_time) if len(os.environ["MEMO"]) > 0 else ""
     cube.time_solve = convert_to_format(cube.time_solve) if len(os.environ["TIME_SOLVE"]) > 0 else ""
