@@ -69,6 +69,7 @@ class Cube:
         self.second_time = False
         self.date = None
         self.calc_fluidness = True
+        self.solve_desc = ""
         self.init_vars()
 
 
@@ -577,6 +578,7 @@ class Cube:
                 if move['comment']:
                     if 'mistake' not in move['comment']:
                         info = move['comment']
+
                         if (info['piece_type'] == "edge"):
                             alg_to_parse = info['alg_str'][0]
                             parsed_alg = self.union_moves(self.parse_alg_to_slice_moves(alg_to_parse))
@@ -599,7 +601,7 @@ class Cube:
         time = os.environ["DATE_SOLVE"]
 
         self.url = ""
-        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve, "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
+        self.name_of_solve = "{}{}{}{}{}{}{}".format("DNF(" if not self.success else "","{} ".format(self.solve_desc) if self.solve_desc != "" else "", self.time_solve, "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
                                                  ")%0A" if not self.success else "", "  {}%25%0A".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}".format(time))
 
 
@@ -633,7 +635,7 @@ class Cube:
         time = os.environ["DATE_SOLVE"]
 
         self.url = ""
-        self.name_of_solve = "{}{}{}{}{}{}".format("DNF(" if not self.success else "", self.time_solve if time != None else "", "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
+        self.name_of_solve = "{}{}{}{}{}{}{}".format("DNF(" if not self.success else "","{} ".format(self.solve_desc) if self.solve_desc!= "" else "",  self.time_solve if time != None else "", "({},{})".format(self.memo_time,self.exe_time) if self.memo_time != "" and self.exe_time != "" else "",
                                                  ")\n" if not self.success else "", "  {}%\n".format(round(self.fluidness, 2)) if self.success and self.fluidness != 0 else "", "{}\n".format(time))
 
         solve_stats_copy = list(self.solve_stats)
@@ -977,6 +979,30 @@ class Cube:
     }
         funcMoves.get(rotation)()
 
+    def solve_description(self):
+        edges_algs = 0
+        cor_algs = 0
+        twist = 0
+        flip = 0
+        for s in self.solve_stats:
+            if s['comment']:
+                if 'comm' in s['comment']:
+                    info = s['comment']
+                    if info['piece_type'] == "edge":
+                        if "flip" in info['parse_lp']:
+                            flip += 1
+                        else:
+                            edges_algs += 2
+                    if info['piece_type'] == "corner":
+                        if "twist" in info['parse_lp']:
+                            twist += 1
+                        else:
+                            cor_algs += 2
+                    if info['piece_type'] == "parity":
+                        cor_algs += 1
+
+        solve_desc = "{}{}/{}{}".format(edges_algs, "'" * flip, cor_algs, "'" * twist)
+        return solve_desc
     def find_mistake(self):
         """
         finds the last point in the solve that you executed correctly
@@ -1046,6 +1072,7 @@ def convert_to_format(time):
         formated = f'{s:2d}.{after_decimal}'
     formated = formated.replace(" ","")
     return formated
+
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
     main function, parses the solve. most of the data will be in cube.solve stats
@@ -1195,6 +1222,7 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     if 'parse_lp' not in cube.solve_stats[-1]["comment"] and cube.calc_fluidness == False :
         cube.fluidness = ""
 
+
     cube.second_time = True
     if cube.smart_cube:
         cube.parse_to_slice_moves_second()
@@ -1202,7 +1230,10 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.memo_time = convert_to_format(cube.memo_time) if len(os.environ["MEMO"]) > 0 else ""
     cube.time_solve = convert_to_format(cube.time_solve) if len(os.environ["TIME_SOLVE"]) > 0 else ""
     cube.exe_time = convert_to_format(cube.exe_time) if len(os.environ["TIME_SOLVE"]) > 0 and len(os.environ["MEMO"]) > 0 else ""
-    print(*cube.solve_stats, sep="\n")
+    if cube.calc_fluidness == True:
+        cube.solve_desc = cube.solve_description()
+    else:
+        cube.solve_desc = ""
 
     if cube.gen_parsed_to_cubedb:
         cube.parsed_solve["cubedb"] = cube.gen_url_2()
