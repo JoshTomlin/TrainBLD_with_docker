@@ -4,6 +4,7 @@ from http.server import  BaseHTTPRequestHandler
 from werkzeug import urls
 import os
 import json
+import traceback
 from BLD_Parser import parse_solve
 from DB_LOGS import add_log_of_request
 def init_env_var(dict_params):
@@ -53,6 +54,8 @@ class S(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            address = self.client_address[0]
+
             content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
             request = self.rfile.read(content_length)  # <--- Gets the data itself
             post_data = json.loads(request)
@@ -60,15 +63,15 @@ class S(BaseHTTPRequestHandler):
             data = parse(post_data)
             solve_str = data[0]
             cube = data[1]
-            address = self.client_address[0]
             self._set_response()
             self.wfile.write(bytearray((solve_str).encode('utf-8')))
             try:
                 add_log_of_request(request, address, '200', cube)
-            except:
-                add_log_of_request(request, address, '404')
+            except Exception as e:
+                add_log_of_request(request, address, '404',error=traceback.format_exc())
         except Exception as e:
-            print(e)
+            traceback.format_exc()
+            add_log_of_request(request, address, '404', error=traceback.format_exc())
             self.send_error(404, 'error')
 
 

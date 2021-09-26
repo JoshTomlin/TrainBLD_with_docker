@@ -15,7 +15,7 @@ def convert_to_num(str_num):
     return final_num
 
 
-def add_log_of_request(request, ip, status, cube=None):
+def add_log_of_request(request, ip, status, cube=None, error=None):
     DB_HOST = "ec2-44-196-44-90.compute-1.amazonaws.com"
     DB_NAME = "dc4npj3mroe80u"
     DB_USER = "zhejkeslajejbt"
@@ -36,7 +36,7 @@ def add_log_of_request(request, ip, status, cube=None):
     if cube:
         cur.execute("INSERT INTO LOGS (REQUEST, POST_TXT, POST_URL, STATUS, IP, SOLVE_TIME, EXE, MEMO, FLUIDNESS, DATE, SUCCESS, ID) VALUES (%s,%s,%s,%s,%s,%s,%s, %s, %s, %s, %s, %s)", (json.dumps(post_data, ensure_ascii=False).encode('utf-8').decode('utf-8'),cube.parsed_solve["txt"],cube.parsed_solve["cubedb"], status, ip, time_solve, exe_time, memo_time, fluidness, cur_time_str, success, id))
     else:
-        cur.execute("INSERT INTO LOGS (REQUEST, STATUS, IP,DATE, ID ) VALUES (%s,%s,%s,%s,%s)", (json.dumps(post_data),status, ip, cur_time_str,id))
+        cur.execute("INSERT INTO LOGS (REQUEST, STATUS, IP,DATE, ID ,ERROR) VALUES (%s,%s,%s,%s,%s,%s)", (json.dumps(post_data),status, ip, cur_time_str,id,error))
     conn.commit()
     cur.close()
     conn.close()
