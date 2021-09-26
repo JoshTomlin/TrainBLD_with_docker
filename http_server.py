@@ -68,6 +68,7 @@ class S(BaseHTTPRequestHandler):
             except:
                 add_log_of_request(request, address, '404')
         except Exception as e:
+            print(e)
             self.send_error(404, 'error')
 
 

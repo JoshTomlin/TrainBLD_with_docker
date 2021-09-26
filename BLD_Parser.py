@@ -1226,15 +1226,15 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.second_time = True
     if cube.smart_cube:
         cube.parse_to_slice_moves_second()
-
     cube.memo_time = convert_to_format(cube.memo_time) if len(os.environ["MEMO"]) > 0 else ""
     cube.time_solve = convert_to_format(cube.time_solve) if len(os.environ["TIME_SOLVE"]) > 0 else ""
     cube.exe_time = convert_to_format(cube.exe_time) if len(os.environ["TIME_SOLVE"]) > 0 and len(os.environ["MEMO"]) > 0 else ""
+
     if cube.calc_fluidness == True:
         cube.solve_desc = cube.solve_description()
     else:
         cube.solve_desc = ""
-
+    import pyperclip
     if cube.gen_parsed_to_cubedb:
         cube.parsed_solve["cubedb"] = cube.gen_url_2()
     if cube.gen_parsed_to_txt:

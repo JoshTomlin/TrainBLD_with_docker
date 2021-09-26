@@ -30,7 +30,6 @@ def add_log_of_request(request, ip, status, cube=None):
         fluidness = cube.fluidness
         success = cube.success
 
-
     post_data = json.loads(request)
     conn = psycopg2.connect(dbname=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST)
     cur = conn.cursor()
