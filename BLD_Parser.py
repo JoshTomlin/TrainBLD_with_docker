@@ -1220,7 +1220,7 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.calc_alg_times()
 
     if 'parse_lp' not in cube.solve_stats[-1]["comment"] and cube.calc_fluidness == False :
-        cube.fluidness = 0
+        cube.fluidness =  0
 
 
     cube.second_time = True
