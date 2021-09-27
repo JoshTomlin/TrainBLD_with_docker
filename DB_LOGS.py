@@ -10,27 +10,6 @@ import glob
 from os.path import isfile, join
 import pickle
 import ast
-def logging():
-    a = time.time()
-    last_file = time.time()
-    while (time.time() - last_file < 2000):
-        if ((time.time() - a) > 5):
-            a = time.time()
-            last_file = time.time()
-            solves_file = glob.glob("data_for_logging*")
-            for s in solves_file:
-                with open (s,"rb") as f:
-                    log = pickle.load(f)
-                    request = log['request']
-                    addreses = log['address']
-                    status = log['status']
-                    if status == "200":
-                        cube = log['cube']
-                        add_log_of_request(request, addreses, status, cube=cube)
-                    elif status == '404':
-                        traceback = log['traceback']
-                        add_log_of_request(request, addreses, status, error=traceback)
-                os.remove(s)
 
 def convert_to_num(str_num):
     if ":" not in str_num:
