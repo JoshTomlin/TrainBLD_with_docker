@@ -2,11 +2,19 @@
 import http
 from http.server import  BaseHTTPRequestHandler
 from werkzeug import urls
+import pickle
 import os
 import json
 import traceback
 from BLD_Parser import parse_solve
 from DB_LOGS import add_log_of_request
+from random import randint
+
+def random_with_N_digits(n):
+    range_start = 10**(n-1)
+    range_end = (10**n)-1
+    return randint(range_start, range_end)
+
 def init_env_var(dict_params):
 
 
@@ -40,6 +48,7 @@ def parse(dict_params):
     return (parsed_solve,cube)
 
 class S(BaseHTTPRequestHandler):
+
     def _set_response(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
@@ -52,34 +61,36 @@ class S(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', "*")
         self.end_headers()
 
+
     def do_POST(self):
         try:
             address = self.client_address[0]
-
             content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
             request = self.rfile.read(content_length)  # <--- Gets the data itself
             post_data = json.loads(request)
-
             data = parse(post_data)
             solve_str = data[0]
             cube = data[1]
             self._set_response()
             self.wfile.write(bytearray((solve_str).encode('utf-8')))
-            try:
-                add_log_of_request(request, address, '200', cube)
-            except Exception as e:
-                add_log_of_request(request, address, '404',error=traceback.format_exc())
+            name_solve = random_with_N_digits(10)
+            with open('data_for_logging_{}.pkl'.format(name_solve), 'wb') as handle:
+                content = ({"request" : request,"address" : address,"status" :'200', "cube": cube})
+                pickle.dump(content, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
         except Exception as e:
-            traceback.format_exc()
-            add_log_of_request(request, address, '404', error=traceback.format_exc())
+            name_solve = random_with_N_digits(10)
+            with open('data_for_logging_{}.pkl'.format(name_solve), 'wb') as handle:
+                content = {"request": request, "address": address, "status": '404', "traceback" : traceback.print_stack()}
+                pickle.dump(content, handle, protocol=pickle.HIGHEST_PROTOCOL)
             self.send_error(404, 'error')
 
 
 
 def run_http_server():
-    PORT = os.environ['PORT']
-    server_address = ('0.0.0.0', int(PORT))
-    # server_address = ('127.0.0.1', 8080)
+    # PORT = os.environ['PORT']
+    # server_address = ('0.0.0.0', int(PORT))
+    server_address = ('127.0.0.1', 8080)
     httpd = http.server.HTTPServer(server_address, S)
     httpd.serve_forever()
 
