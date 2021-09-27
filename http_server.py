@@ -71,18 +71,19 @@ class S(BaseHTTPRequestHandler):
             try:
                add_log_of_request(request, address, '200', cube=cube)
             except:
-                add_log_of_request(request, address, '404', error=traceback.print_stack())
+                add_log_of_request(request, address, '404', error=traceback.format_exc())
 
         except Exception as e:
-            add_log_of_request(request, address, '200', error=traceback.print_stack())
+            
+            add_log_of_request(request, address, '404', error=traceback.format_exc())
             self.send_error(404, 'error')
 
 
 
 def run_http_server():
-    PORT = os.environ['PORT']
-    server_address = ('0.0.0.0', int(PORT))
-    # server_address = ('127.0.0.1', 8080)
+    # PORT = os.environ['PORT']
+    # server_address = ('0.0.0.0', int(PORT))
+    server_address = ('127.0.0.1', 8080)
     httpd = http.server.HTTPServer(server_address, S)
     httpd.serve_forever()
 
