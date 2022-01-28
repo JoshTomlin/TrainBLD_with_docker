@@ -1088,14 +1088,14 @@ def cube_orientation_fix(cube):
     scramble = cube.scramble
     solve = cube.solve
     if cube_orientarion == "white-green":
-        return (scramble, solve, "")
+        return (scramble, solve, None)
     rotation_dict = {"x" : "x'", "x'" : "x", "x2" : "x2", "y" : "y'", "y'" : "y" , "y2" :"y2", "z" : "z'", "z'" : "z", "z2" : "z2"}
     orientation_dict = {'white-green' : '','white-blue' : 'y2','white-orange' : "y'",'white-red' : "y",'green-white' : "y2 x'",'green-yellow' : 'x','green-orange' : "x y'",'green-red' : 'x y','yellow-green' : 'z2','yellow-blue' : 'x2','yellow-orange' : 'z2 y','yellow-red' : 'x2 y','blue-white' : "x'",'blue-yellow' : "x' y2",'blue-orange' : "x' y'",'blue-red' : "x' y",'orange-white' : 'z y','orange-green' : 'z','orange-yellow' : "z y'",'orange-blue' : "y2 z'",'red-white' : "z' y'",'red-green' : "z'",'red-yellow' : "z' y",'red-blue' : 'y2 z'}
     oreintation_rotations = orientation_dict[cube_orientarion].split()
     rotation_to_apply = " ".join([rotation_dict[x] for x in oreintation_rotations][::-1])
     scramble = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, scramble).split()))
     solve = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, solve).split()))
-    return (scramble, solve,oreintation_rotations )
+    return (scramble, solve," ".join(oreintation_rotations))
 
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
