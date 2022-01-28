@@ -20,10 +20,11 @@ class Cube:
               46: "B", 47: "B", 48: "B", 49: "B", 50: "B", 51: "B", 52: "B", 53: "B", 54: "B"}
 
         self.dict_stickers = {1: "UBL", 3: "UBR", 7: "UFL", 9: "UFR", 10: "RFU", 12: "RBU", 16: "RFD", 18: "RBD", 19: "FUL", 21: "FUR" , 25: "FDL",27: "FRD", 28: "DFL", 30: "DFR", 34: "DBL", 36: "DBR", 37: "LBU", 39: "LFU", 43: "LDB", 45: "LFD", 46: "BUR", 48: "BUL", 52: "BRD", 54: "BLD", 2: "UB", 4: "UL", 6: "UR", 8: "UF", 11: "RU", 13: "RF", 15: "RB", 17: "RD", 20: "FU", 22: "FL", 24: "FR", 26: "FD", 29: "DF", 31: "DL", 33: "DR", 35: "DB", 38: "LU", 40: "LB", 42: "LF", 44: "LD", 47: "BU", 49: "BR", 51: "BL", 53: "BD" }
-
+        self.rotation_from_oreintation = None
         self.gen_parsed_to_txt = None
         self.gen_with_moves = None
         self.smart_cube = None
+        self.original_scramble = ""
         self.gen_parsed_to_cubedb = None
         self.comms_unparsed_bool = None
         self.gen_with_move_count = None
@@ -107,6 +108,7 @@ class Cube:
         """
 
         # load_dotenv()
+        self.cube_orientarion = os.environ["CUBE_OREINTATION"]
         self.smart_cube = True if os.environ.get("SMART_CUBE") == "True" else False
         self.gen_parsed_to_cubedb = True if os.environ.get("GEN_PARSED_TO_CUBEDB") == "True" else False
         self.gen_parsed_to_txt = True if os.environ.get("GEN_PARSED_TO_TXT") == "True" else False
@@ -607,13 +609,16 @@ class Cube:
 
         solve_stats_copy = list(self.solve_stats)
         self.url = "https://www.cubedb.net/?rank=3&title={}&time={}&scramble=".format(self.name_of_solve, self.exe_time)
-        for move in self.union_moves(self.scramble).split():
+        for move in self.union_moves(self.original_scramble).split():
             if "\'" in move:
                 move.replace("\'", "-")
             self.url += "{}_".format(move)
         self.url += "&alg="
         count = 0
         solve = ""
+        if self.rotation_from_oreintation:
+            self.url += "{} // memo".format(self.rotation_from_oreintation)
+
 
         for move in solve_stats_copy:
             if move['comment']:
@@ -639,8 +644,13 @@ class Cube:
                                                  ")\n" if not self.success else "", "  {}%\n".format(round(self.fluidness, 2)) if self.success and self.fluidness != "" and self.fluidness != 0 else "", "{}\n".format(time))
 
         solve_stats_copy = list(self.solve_stats)
-        solve = "{}\nScramble:\n{}\n".format(self.name_of_solve, self.union_moves(self.scramble))
+        solve=""
+        scramble = "{}\nScramble:\n{}\n".format(self.name_of_solve, self.union_moves(self.original_scramble))
         count = 0
+        self.url += scramble
+        self.url += "\nSolve:\n"
+        if self.rotation_from_oreintation:
+            self.url += "{} // memo".format(self.rotation_from_oreintation)
         for move in solve_stats_copy:
             if move['comment']:
                 info = move['comment']
@@ -1074,11 +1084,23 @@ def convert_to_format(time):
     return formated
 
 def cube_orientation_fix(cube):
-    rotation_dict = {"x" : "x'", "x'" : "x", "x2" : "x2", "y" : "y'", "y'" : "y" , "y2: " :"y2", "z" : "z'", "z'" : "z", "z2" : "z2"}
+    cube_orientarion = cube.cube_orientarion
+    scramble = cube.scramble
+    solve = cube.solve
+    if cube_orientarion == "white-green":
+        return (scramble, solve, "")
+    rotation_dict = {"x" : "x'", "x'" : "x", "x2" : "x2", "y" : "y'", "y'" : "y" , "y2" :"y2", "z" : "z'", "z'" : "z", "z2" : "z2"}
+    print(rotation_dict)
     orientation_dict = {'white-green' : '','white-blue' : 'y2','white-orange' : "y'",'white-red' : "y",'green-white' : "y2 x'",'green-yellow' : 'x','green-orange' : "x y'",'green-red' : 'x y','yellow-green' : 'z2','yellow-blue' : 'x2','yellow-orange' : 'z2 y','yellow-red' : 'x2 y','blue-white' : "x'",'blue-yellow' : "x' y2",'blue-orange' : "x' y'",'blue-red' : "x' y",'orange-white' : 'z y','orange-green' : 'z','orange-yellow' : "z y'",'orange-blue' : "y2 z'",'red-white' : "z' y'",'red-green' : "z'",'red-yellow' : "z' y",'red-blue' : 'y2 z'}
-    rotation_apply = orientation_dict()
+    oreintation_rotations = orientation_dict[cube_orientarion].split()
+    rotation_to_apply = " ".join([rotation_dict[x] for x in oreintation_rotations][::-1])
+    scramble = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, scramble).split()))
+    solve = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, solve).split()))
 
-    return (scramble, solve, )
+    print(scramble)
+    print(solve)
+    print(rotation_to_apply)
+    return (scramble, solve,rotation_to_apply )
 
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
@@ -1093,16 +1115,13 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
         cube = Cube()
     cube.comms_unparsed = keep_comms_unparsed(solve_attampt)
     cube.scramble = scramble
+    cube.original_scramble = scramble
     cube.solve = solve
     cube.current_facelet = SOLVED
-    cube.scramble = (" ".join(cube.parse_rotation_from_alg(("x' " + cube.scramble).split())))
+    (cube.scramble, cube.solve, cube.rotation_from_oreintation) = cube_orientation_fix(cube)
     SCRAMBLE_LIST = cube.scramble.split()
-    print(SCRAMBLE_LIST)
-    cube.solve = (" ".join(cube.parse_rotation_from_alg(("x' " + cube.solve).split())))
     cube.solve_helper = cube.solve
 
-    print(cube.scramble)
-    print(cube.solve)
 
     rot = cube.fix_rotation()
 
