@@ -1095,7 +1095,7 @@ def cube_orientation_fix(cube):
     rotation_to_apply = " ".join([rotation_dict[x] for x in oreintation_rotations][::-1])
     scramble = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, scramble).split()))
     solve = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, solve).split()))
-    return (scramble, solve,rotation_to_apply )
+    return (scramble, solve,oreintation_rotations )
 
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
