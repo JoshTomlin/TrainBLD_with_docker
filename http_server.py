@@ -9,8 +9,6 @@ import traceback
 from BLD_Parser import parse_solve
 from DB_LOGS import add_log_of_request
 def init_env_var(dict_params):
-
-
     os.environ["SMART_CUBE"] = "True" if dict_params["SMART_CUBE"] == True else "False"
     os.environ["GEN_PARSED_TO_CUBEDB"] = "True" if dict_params["GEN_PARSED_TO_CUBEDB"] == True else "False"
     os.environ["GEN_PARSED_TO_TXT"] = "True" if dict_params["GEN_PARSED_TO_TXT"] == True else "False"
@@ -22,6 +20,7 @@ def init_env_var(dict_params):
     os.environ["PARSE_TO_LETTER_PAIR"] = "True" if dict_params["PARSE_TO_LETTER_PAIR"] == True else "False"
     os.environ["EDGES_BUFFER"] = dict_params["EDGES_BUFFER"]
     os.environ["CORNER_BUFFER"] = dict_params["CORNER_BUFFER"]
+    os.environ["CUBE_OREINTATION"] = dict_params["CUBE_OREINTATION"]
     os.environ["LETTER_PAIRS_DICT"] = dict_params["LETTER_PAIRS_DICT"]
     os.environ["SCRAMBLE"] = dict_params["SCRAMBLE"]
     os.environ["SOLVE"] = dict_params["SOLVE"]
@@ -74,16 +73,16 @@ class S(BaseHTTPRequestHandler):
                 add_log_of_request(request, address, '404', error=traceback.format_exc())
 
         except Exception as e:
-
+            print(traceback.format_exc())
             add_log_of_request(request, address, '404', error=traceback.format_exc())
             self.send_error(404, 'error')
 
 
 
 def run_http_server():
-    PORT = os.environ['PORT']
-    server_address = ('0.0.0.0', int(PORT))
-    # server_address = ('127.0.0.1', 8080)
+    # PORT = os.environ['PORT']
+    # server_address = ('0.0.0.0', int(PORT))
+    server_address = ('127.0.0.1', 8080)
     httpd = http.server.HTTPServer(server_address, S)
     httpd.serve_forever()
 

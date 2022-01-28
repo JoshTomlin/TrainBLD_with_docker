@@ -459,10 +459,9 @@ class Cube:
         """
         alg_apply_rot = []
         self.solve_helper = final_alg
-
         while final_alg:
             if final_alg[0] in self.rotation:
-                if len(final_alg) > 1:
+                if len(final_alg) >= 1:
                     self.solve_helper = " ".join(final_alg[1:])
                     self.apply_rotation(final_alg[0])
                     final_alg.pop(0)
@@ -471,6 +470,7 @@ class Cube:
                     final_alg.pop(0)
             else:
                 alg_apply_rot.append(final_alg.pop(0))
+        self.solve_helper = self.solve
         return  alg_apply_rot
 
     def parse_alg_to_slice_moves(self, alg):
@@ -1073,6 +1073,13 @@ def convert_to_format(time):
     formated = formated.replace(" ","")
     return formated
 
+def cube_orientation_fix(cube):
+    rotation_dict = {"x" : "x'", "x'" : "x", "x2" : "x2", "y" : "y'", "y'" : "y" , "y2: " :"y2", "z" : "z'", "z'" : "z", "z2" : "z2"}
+    orientation_dict = {'white-green' : '','white-blue' : 'y2','white-orange' : "y'",'white-red' : "y",'green-white' : "y2 x'",'green-yellow' : 'x','green-orange' : "x y'",'green-red' : 'x y','yellow-green' : 'z2','yellow-blue' : 'x2','yellow-orange' : 'z2 y','yellow-red' : 'x2 y','blue-white' : "x'",'blue-yellow' : "x' y2",'blue-orange' : "x' y'",'blue-red' : "x' y",'orange-white' : 'z y','orange-green' : 'z','orange-yellow' : "z y'",'orange-blue' : "y2 z'",'red-white' : "z' y'",'red-green' : "z'",'red-yellow' : "z' y",'red-blue' : 'y2 z'}
+    rotation_apply = orientation_dict()
+
+    return (scramble, solve, )
+
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
     main function, parses the solve. most of the data will be in cube.solve stats
@@ -1087,9 +1094,16 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.comms_unparsed = keep_comms_unparsed(solve_attampt)
     cube.scramble = scramble
     cube.solve = solve
-    cube.solve_helper = solve
     cube.current_facelet = SOLVED
-    SCRAMBLE_LIST = scramble.split()
+    cube.scramble = (" ".join(cube.parse_rotation_from_alg(("x' " + cube.scramble).split())))
+    SCRAMBLE_LIST = cube.scramble.split()
+    print(SCRAMBLE_LIST)
+    cube.solve = (" ".join(cube.parse_rotation_from_alg(("x' " + cube.solve).split())))
+    cube.solve_helper = cube.solve
+
+    print(cube.scramble)
+    print(cube.solve)
+
     rot = cube.fix_rotation()
 
     for move in rot:
