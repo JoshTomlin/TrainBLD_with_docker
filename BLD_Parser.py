@@ -543,7 +543,7 @@ class Cube:
         count = 0
         for i in range(0,len(self.solve_stats)):
             j = i-1
-            # test to push with heroku
+
             # print("{}.{} : {}\n{} : {} \n".format(i, "solve_stats", self.solve_stats[i], "move_time" , self.moves_time[j]))
             if 'parse_lp' in self.solve_stats[i]['comment']:
                 self.solve_stats[i]['comment']['alg_str'] = self.algs_executed[count]
