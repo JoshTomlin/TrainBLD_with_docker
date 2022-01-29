@@ -634,6 +634,7 @@ class Cube:
 
         self.url += solve
         self.url = self.url.replace("\n", "%0A")
+        self.url = wide_moves_fix(self.url)
         return self.url
     def gen_text_2(self):
 
@@ -664,6 +665,7 @@ class Cube:
                             'moves_from_start']) if self.gen_with_move_count else "", "  {}".format(info['alg_time']) if 'alg_time' in info else "")
 
         self.url += solve
+        self.url = wide_moves_fix(self.url)
         return self.url
 
 
@@ -1084,6 +1086,9 @@ def convert_to_format(time):
     return formated
 
 def cube_orientation_fix(cube):
+    """
+    function fixes the scramble and solve to match user cube orientation
+    """
     cube_orientarion = cube.cube_orientarion
     scramble = cube.scramble
     solve = cube.solve
@@ -1096,6 +1101,18 @@ def cube_orientation_fix(cube):
     scramble = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, scramble).split()))
     solve = " ".join(cube.parse_rotation_from_alg("{} {}".format(rotation_to_apply, solve).split()))
     return (scramble, solve," ".join(oreintation_rotations))
+
+def wide_moves_fix(solve_str):
+    """
+    function changes D B D' to u R u' - doesnt work
+    """
+    solve = solve_str
+    change_dict = {"D B D'" : "u R u'","D B2 D'" : "u R2 u'", "D B' D'" : "u R' u'",  "D' B' D" : "u' L' u", "D' B D" : "u' L u", "D' B2 D" : "u' L2 u"}
+    for key in change_dict:
+        solve = solve.replace(key, change_dict[key])
+    return solve
+
+
 
 def parse_solve(scramble, solve_attampt, cube_import=None):
     """
@@ -1111,6 +1128,7 @@ def parse_solve(scramble, solve_attampt, cube_import=None):
     cube.comms_unparsed = keep_comms_unparsed(solve_attampt)
     cube.scramble = scramble
     cube.original_scramble = scramble
+    # cube.solve = wide_moves_fix(cube)
     cube.solve = solve
     cube.current_facelet = SOLVED
     (cube.scramble, cube.solve, cube.rotation_from_oreintation) = cube_orientation_fix(cube)

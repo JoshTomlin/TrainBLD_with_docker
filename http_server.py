@@ -73,6 +73,7 @@ class S(BaseHTTPRequestHandler):
                 add_log_of_request(request, address, '404', error=traceback.format_exc())
 
         except Exception as e:
+            print (traceback.format_exc())
             add_log_of_request(request, address, '404', error=traceback.format_exc())
             self.send_error(404, 'error')
 
