@@ -3,3 +3,5 @@ python-dotenv
 permutation
 werkzeug
 psycopg2
+flask
+flsak-cors
