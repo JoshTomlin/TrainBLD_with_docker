@@ -4,3 +4,4 @@ Add support for moyu AI - done!
 Add support for u R insted D B - done
 Add edges/corner only scrambles 
 Add support to ignore parity in OP
+Add support to +2 automatically
