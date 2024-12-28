@@ -27,6 +27,7 @@ def init_env_var(dict_params):
     os.environ["MEMO"] = dict_params["MEMO"]
     os.environ["SOLVE_TIME_MOVES"] = dict_params["SOLVE_TIME_MOVES"]
     os.environ["DATE_SOLVE"] = dict_params["DATE_SOLVE"]
+    os.environ["SCRAMBLE_TYPE"] = dict_params["SCRAMBLE_TYPE"]
     os.environ["ID"] = dict_params["ID"]
 
 
@@ -67,22 +68,22 @@ class S(BaseHTTPRequestHandler):
             self._set_response()
             self.wfile.write(bytearray((solve_str).encode('utf-8')))
 
-            try:
-               add_log_of_request(request, address, '200', cube=cube)
-            except:
-                add_log_of_request(request, address, '404', error=traceback.format_exc())
+            # try:
+            #    add_log_of_request(request, address, '200', cube=cube)
+            # except:
+            #     add_log_of_request(request, address, '404', error=traceback.format_exc())
 
         except Exception as e:
             print (traceback.format_exc())
-            add_log_of_request(request, address, '404', error=traceback.format_exc())
+            # add_log_of_request(request, address, '404', error=traceback.format_exc())
             self.send_error(404, 'error')
 
 
 
 def run_http_server():
-    PORT = os.environ['PORT']
-    server_address = ('0.0.0.0', int(PORT))
-    # server_address = ('127.0.0.1', 8080)
+    # PORT = os.environ['PORT']
+    # server_address = ('0.0.0.0', int(PORT))
+    server_address = ('127.0.0.1', 8080)
     httpd = http.server.HTTPServer(server_address, S)
     httpd.serve_forever()
 
