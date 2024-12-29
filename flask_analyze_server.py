@@ -5,7 +5,7 @@ import os
 import json
 import traceback
 from BLD_Parser import parse_solve
-from DB_LOGS import add_log_of_request
+# from DB_LOGS import add_log_of_request
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -80,7 +80,7 @@ def run_flask_server():
     app.run(host='127.0.0.1', port=8080)
 
 def main():
-    pass
+    run_flask_server()
 
 if __name__ == '__main__':
     main()
