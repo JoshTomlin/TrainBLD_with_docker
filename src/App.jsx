@@ -769,7 +769,7 @@ class App extends React.Component {
     };
 
     // fetch("https://rotohands-bld-parser.herokuapp.com/", requestOptions)
-      fetch("http://127.0.0.1:8080", requestOptions)
+      fetch("http://127.0.0.1:8080/parse", requestOptions)
       .then((response) =>
         response.json().then((data) => {
           result = data;
