@@ -5,21 +5,21 @@ import os
 import json
 import traceback
 from BLD_Parser import parse_solve
-# from DB_LOGS import add_log_of_request
+from DB_LOGS import add_log_of_request  # Update this import statement
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 def init_env_var(dict_params):
-    os.environ["SMART_CUBE"] = "True" if dict_params["SMART_CUBE"] else "False"
-    os.environ["GEN_PARSED_TO_CUBEDB"] = "True" if dict_params["GEN_PARSED_TO_CUBEDB"] else "False"
-    os.environ["GEN_PARSED_TO_TXT"] = "True" if dict_params["GEN_PARSED_TO_TXT"] else "False"
+    os.environ["SMART_CUBE"] = "True" if dict_params["SMART_CUBE"] == True else "False"
+    os.environ["GEN_PARSED_TO_CUBEDB"] = "True" if dict_params["GEN_PARSED_TO_CUBEDB"] == True else "False"
+    os.environ["GEN_PARSED_TO_TXT"] = "True" if dict_params["GEN_PARSED_TO_TXT"] == True else "False"
     os.environ["NAME_OF_SOLVE"] = dict_params["NAME_OF_SOLVE"]
     os.environ["TIME_SOLVE"] = dict_params["TIME_SOLVE"]
-    os.environ["COMMS_UNPARSED"] = "True" if dict_params["COMMS_UNPARSED"] else "False"
-    os.environ["GEN_WITH_MOVE_COUNT"] = "True" if dict_params["GEN_WITH_MOVE_COUNT"] else "False"
+    os.environ["COMMS_UNPARSED"] = "True" if dict_params["COMMS_UNPARSED"]  == True else "False"
+    os.environ["GEN_WITH_MOVE_COUNT"] = "True" if dict_params["GEN_WITH_MOVE_COUNT"] == True else "False"
     os.environ["DIFF_BETWEEN_ALGS"] = dict_params["DIFF_BETWEEN_ALGS"]
-    os.environ["PARSE_TO_LETTER_PAIR"] = "True" if dict_params["PARSE_TO_LETTER_PAIR"] else "False"
+    os.environ["PARSE_TO_LETTER_PAIR"] = "True" if dict_params["PARSE_TO_LETTER_PAIR"] == True else "False"
     os.environ["EDGES_BUFFER"] = dict_params["EDGES_BUFFER"]
     os.environ["CORNER_BUFFER"] = dict_params["CORNER_BUFFER"]
     os.environ["CUBE_OREINTATION"] = dict_params["CUBE_OREINTATION"]
@@ -31,6 +31,7 @@ def init_env_var(dict_params):
     os.environ["DATE_SOLVE"] = dict_params["DATE_SOLVE"]
     os.environ["SCRAMBLE_TYPE"] = dict_params["SCRAMBLE_TYPE"]
     os.environ["ID"] = dict_params["ID"]
+
 
 def parse(dict_params):
     init_env_var(dict_params)
@@ -50,12 +51,12 @@ def handle_parse_request():
         data = parse(post_data)
         solve_str = data[0]
         cube = data[1]
-
+        
         # Optionally log the request (commented out)
-        # try:
-        #     add_log_of_request(post_data, address, '200', cube=cube)
-        # except:
-        #     add_log_of_request(post_data, address, '404', error=traceback.format_exc())
+        try:
+            add_log_of_request(post_data, address, '200', cube=cube)
+        except:           
+            add_log_of_request(post_data, address, '404', error=traceback.format_exc())
 
         response = make_response(solve_str, 200)
         response.headers['Content-Type'] = 'application/json; charset=utf-8'
@@ -64,7 +65,7 @@ def handle_parse_request():
 
     except Exception as e:
         print(traceback.format_exc())
-        # add_log_of_request(post_data, address, '404', error=traceback.format_exc())
+        add_log_of_request(post_data, address, '404', error=traceback.format_exc())
         return make_response({"error": "An error occurred", "details": traceback.format_exc()}, 500)
 
 @app.route('/options', methods=['OPTIONS'])
