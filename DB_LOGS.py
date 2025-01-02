@@ -10,10 +10,10 @@ def convert_to_num(value):
         return 0.0
     
 def add_log_of_request(request, ip, status, cube=None, error=None):
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_NAME = os.getenv("DB_NAME", "trainbld")
-    DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASS = "Letsmakethisdbworkverygood"
+    DB_HOST = os.getenv("DB_HOST")
+    DB_NAME = os.getenv("DB_NAME")
+    DB_USER = os.getenv("DB_USER")
+    DB_PASS = os.getenv("DB_PASS")
     
     post_data = json.dumps(request)
   
