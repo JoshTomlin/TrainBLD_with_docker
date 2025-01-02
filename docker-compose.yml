@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  trainbld_website:
+    build:
+      context: ./Website
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+
+  trainbld_server:
+    build:
+      context: ./Server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASS=${POSTGRES_PASSWORD}
+    depends_on:
+      - postgres
+
+  postgres:
+    build:
+      context: ./Database
+      dockerfile: Dockerfile
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8081:8080
+volumes:
+  postgres_data:
