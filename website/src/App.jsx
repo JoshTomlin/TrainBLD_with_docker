@@ -768,8 +768,8 @@ class App extends React.Component {
       body: JSON.stringify(setting),
     };
 
-    // fetch("https://rotohands-bld-parser.herokuapp.com/", requestOptions)
-      fetch("http://127.0.0.1:8080/parse", requestOptions)
+    fetch("https://trainbld.com:8080/parse", requestOptions)
+      // fetch("http://127.0.0.1:8080/parse", requestOptions)
       .then((response) =>
         response.json().then((data) => {
           result = data;
