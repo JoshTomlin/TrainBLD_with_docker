@@ -3,14 +3,16 @@ version: '3.8'
 services:
   trainbld_website:
     build:
-      context: ./Website
+      context: ./website
       dockerfile: Dockerfile
     ports:
       - "80:80"
+    networks:
+      - app_network
 
   trainbld_server:
     build:
-      context: ./Server
+      context: ./server
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
@@ -21,24 +23,40 @@ services:
       - DB_PASS=${POSTGRES_PASSWORD}
     depends_on:
       - postgres
+    networks:
+      - app_network
 
   postgres:
-    build:
-      context: ./Database
-      dockerfile: Dockerfile
+    image: postgres:latest
+    context: ./database
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
 
   adminer:
     image: adminer
     restart: always
     ports:
-      - 8081:8080
+      - "8081:8080"
+    networks:
+      - app_network
+
 volumes:
   postgres_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
