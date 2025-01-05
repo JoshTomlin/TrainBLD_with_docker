@@ -77,7 +77,7 @@ def handle_options_request():
 
 def run_flask_server():
     # Using Flask's built-in server
-    app.run(host='https://trainbld.com', port=8080)
+    app.run()
     # app.run(host='127.0.0.1', port=8080)
 
 def main():

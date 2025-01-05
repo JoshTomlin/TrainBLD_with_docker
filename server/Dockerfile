@@ -20,4 +20,4 @@ EXPOSE 8080
 ENV FLASK_APP=./app/flask_analyze_server.py
 COPY . /app
 
-CMD ["python", "-u", "-m",  "flask", "run", "--host=https://trainbld.com", "--port=8080"]
+CMD ["python", "-u", "-m",  "flask", "run", "--host=0.0.0.0", "--port=8080"]
