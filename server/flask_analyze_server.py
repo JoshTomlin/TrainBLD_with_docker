@@ -42,7 +42,7 @@ def parse(dict_params):
 @app.route('/parse', methods=['POST'])
 def handle_parse_request():
     try:
-        address = request.remote_addr
+        address = request.headers.get('X-Real-IP') or request.remote_addr
         post_data = request.get_json()
 
         if not post_data:
