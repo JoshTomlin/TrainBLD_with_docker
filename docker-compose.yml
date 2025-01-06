@@ -10,6 +10,7 @@ services:
     depends_on:
       - trainbld_website
       - trainbld_server
+    restart: always
     networks:
       - app_network
 
@@ -17,6 +18,8 @@ services:
     build:
       context: ./website
       dockerfile: Dockerfile
+    restart: always
+
     networks:
       - app_network
 
@@ -33,6 +36,8 @@ services:
       - postgres
     networks:
       - app_network
+    restart: always
+
 
   postgres:
     image: postgres:latest
