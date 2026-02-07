@@ -61,7 +61,7 @@ class S(BaseHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])  # <--- Gets the size of data
             request = self.rfile.read(content_length)  # <--- Gets the data itself
             post_data = json.loads(request)
-
+            
             data = parse(post_data)
             solve_str = data[0]
             cube = data[1]

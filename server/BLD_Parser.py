@@ -502,15 +502,20 @@ class Cube:
             else:
                 final_alg.append(alg_list[0])
                 alg_list.pop(0)
+        # Converted all parallel moves
+        print(final_alg)
+
         alg_apply_rot = temp_cube.parse_rotation_from_alg(final_alg)
         final = []
         final_alg_str = " ".join(alg_apply_rot)
-        if final_alg_str.count('E') == 4:
+
+        if final_alg_str.count('E') == -10:
             found = 0
             for i in range(len(alg_apply_rot)):
                 if alg_apply_rot[i] == 'E' or alg_apply_rot[i] == "E'":
                     found += 1
-                    if found == 1 or found == 4:
+                    
+                    if found == 1:
                         if alg_apply_rot[i] == 'E':
                             final.append("U")
                             final.append("D'")

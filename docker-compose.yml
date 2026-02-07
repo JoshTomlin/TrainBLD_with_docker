@@ -1,6 +1,8 @@
 version: '3.8'
 
 services:
+
+
   nginx:
     image: nginx:latest
     volumes:
@@ -15,6 +17,8 @@ services:
       - app_network
 
   trainbld_website:
+    ports:
+      - "8080:80"
     build:
       context: ./website
       dockerfile: Dockerfile
@@ -37,6 +41,8 @@ services:
     networks:
       - app_network
     restart: always
+
+
 
 
   postgres:

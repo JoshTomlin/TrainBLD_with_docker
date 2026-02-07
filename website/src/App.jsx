@@ -603,6 +603,7 @@ class App extends React.Component {
     // console.log("solve :\n", solve.join(" "));
 
     solve_time = ((time_end_solve - time_start_solve) / 1000).toFixed(2);
+    console.log(time_end_solve, time_start_solve, solve_time)
     parse_setting_new["SCRAMBLE"] = scramble
       .join(" ")
       .toString()
@@ -1389,7 +1390,8 @@ class App extends React.Component {
                 });
             } else {
               //not support
-              // logohint.push('Not support your Gan cube');
+              console.log('Gan not supported')
+              //logohint.push('Not support your Gan cube');
             }
           });
       }
@@ -2139,7 +2141,86 @@ class App extends React.Component {
           }
         });
     }
-    init();
+
+    function newMovesNotation(move) {
+      console.log("[trainbld] newMovesNotation", move);
+        const cube_moves_new = [...this_App.state.cube_moves];
+        const cube_moves_time_new = [...this_App.state.cube_moves_time];
+
+        if (cube_moves_new.length === 0) {
+          this_App.handle_solve_status("Scrambling");
+        }
+        if (this_App.state.solve_status == "Memo") {
+          this_App.handle_solve_status("Solving");
+        }
+
+        cube_moves_new.push(move);
+        cube_moves_time_new.push(Date.now());
+
+        this_App.setState({ cube_moves: cube_moves_new });
+        this_App.setState({ cube_moves_time: cube_moves_time_new });
+        this_App.handle_moves_to_show(cube_moves_new);
+    }
+
+    function connectBridge() {
+        const ws = new WebSocket(`ws://host.docker.internal:17433`);
+
+        ws.onmessage = (e) => {
+          console.log("[bridge] raw", e.data);
+
+          let msg;
+          try {
+            msg = JSON.parse(e.data);
+          } catch {
+            console.log("[bridge] non-json message");
+            return;
+          }
+
+          console.log("[bridge] parsed", msg);
+
+          if (msg.type === "move") {
+            console.log("[bridge] applying move", msg.move);
+            newMovesNotation(msg.move); // no R2 expansion for now
+          }
+        };
+
+
+        console.log("[bridge] trying", `ws://${window.location.hostname}:17433`);
+        ws.onopen = () => console.log("[bridge] connected");
+        ws.onclose = () => console.log("[bridge] closed");
+        ws.onerror = (e) => console.log("[bridge] error", e);
+
+
+        ws.onopen = () => {
+          console.log("[bridge] connected");
+          this_App.handle_solve_status("Connected");
+        };
+
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "move") {
+            const m = msg.move;
+
+            // Handle double turns like "R2" by pushing twice
+            if (m && m.endsWith("2")) {
+              const base = m.slice(0, -1); // "R", "U'", etc (usually no prime with 2, but safe)
+              newMovesNotation(base);
+              newMovesNotation(base);
+            } else {
+              newMovesNotation(m);
+            }
+          }
+        };
+
+        ws.onclose = () => console.log("[bridge] closed");
+        ws.onerror = (err) => console.log("[bridge] error", err);
+
+        return ws;
+    }
+
+
+    //init();
+    connectBridge()
   };
 }
 export default App;
