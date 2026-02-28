@@ -12,7 +12,9 @@
     "bootstrap": "^5.1.0",
     "cube-solver": "^2.4.1",
     "cubing": "^0.20.2",
+    "gan-web-bluetooth": "^3.0.2",
     "mdbreact": "^5.1.0",
+    "patch-package": "^8.0.0",
     "react": "^17.0.2",
     "react-base-table": "^1.12.0",
     "react-bootstrap": "^2.0.0-beta.6",
@@ -27,6 +29,7 @@
     "web-vitals": "^1.1.2"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
@@ -34,8 +37,7 @@
   },
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
+      "react-app"
     ]
   },
   "browserslist": {

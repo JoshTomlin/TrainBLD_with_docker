@@ -1,6 +1,7 @@
 import React from "react";
 import * as SRScrambler from "sr-scrambler";
 import cubeSolver from "cube-solver";
+import { connectGanCube } from "gan-web-bluetooth";
 import ConnectCube from "./component/ConnectCube";
 import Setting from "./component/Settings";
 import "bootstrap/dist/css/bootstrap.css";
@@ -12,10 +13,13 @@ import logo from "./images/logo2.png";
 import LZString from "lz-string";
 import SolveStats from "./component/SolveStats";
 import "react-base-table/styles.css";
+
 class App extends React.Component {
   constructor() {
     super();
     this.GiikerCube = this.GiikerCube.bind(this);
+    this.connectGanCubeDirect = this.connectGanCubeDirect.bind(this);
+    this.newMovesNotation = this.newMovesNotation.bind(this);
     this.state = {
       gan: false,
       url_stats: "",
@@ -88,6 +92,129 @@ class App extends React.Component {
     this.initialStatsFromLocalstorage();
     this.handle_scramble();
   };
+  newMovesNotation(move) {
+    const cube_moves_new = [...this.state.cube_moves];
+    const cube_moves_time_new = [...this.state.cube_moves_time];
+
+    if (cube_moves_new.length === 0) {
+      this.handle_solve_status("Scrambling");
+    }
+    if (this.state.solve_status == "Memo") {
+      this.handle_solve_status("Solving");
+    }
+
+    if (move && move.endsWith("2")) {
+      const base = move.slice(0, -1);
+      cube_moves_new.push(base);
+      cube_moves_time_new.push(Date.now());
+      cube_moves_new.push(base);
+      cube_moves_time_new.push(Date.now());
+    } else {
+      cube_moves_new.push(move);
+      cube_moves_time_new.push(Date.now());
+    }
+
+    this.setState({ cube_moves: cube_moves_new, cube_moves_time: cube_moves_time_new });
+    this.handle_moves_to_show(cube_moves_new);
+  }
+
+  getGanMacStorageKey = (device) => {
+    const idPart = device && device.id ? device.id : "unknown-id";
+    const namePart = device && device.name ? device.name : "unknown-name";
+    return `gan-mac-cache::${idPart}::${namePart}`;
+  };
+
+  getCachedGanMac = (device) => {
+    try {
+      return window.localStorage.getItem(this.getGanMacStorageKey(device));
+    } catch (err) {
+      console.warn("[gan-web-bluetooth] unable to read cached MAC:", err);
+      return null;
+    }
+  };
+
+  setCachedGanMac = (device, mac) => {
+    if (!mac) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(this.getGanMacStorageKey(device), mac);
+    } catch (err) {
+      console.warn("[gan-web-bluetooth] unable to cache MAC:", err);
+    }
+  };
+
+  provideGanMac = async (device, isForced) => {
+    const cachedMac = this.getCachedGanMac(device);
+
+    if (cachedMac) {
+      console.log("[gan-web-bluetooth] using cached MAC:", cachedMac);
+      return cachedMac;
+    }
+
+    if (!isForced) {
+      console.log("[gan-web-bluetooth] no cached MAC available before advertisement lookup");
+      return null;
+    }
+
+    console.warn("[gan-web-bluetooth] advertisement MAC lookup failed; requesting manual MAC");
+    const input = window.prompt(
+      `Enter the MAC address for ${device && device.name ? device.name : "your GAN cube"}.\nExample: CD:20:4C:9A:4E:42`
+    );
+
+    if (!input) {
+      return null;
+    }
+
+    const normalizedMac = input.trim().toUpperCase();
+    if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(normalizedMac)) {
+      console.warn("[gan-web-bluetooth] invalid manual MAC format:", normalizedMac);
+      return null;
+    }
+
+    this.setCachedGanMac(device, normalizedMac);
+    return normalizedMac;
+  };
+
+  async connectGanCubeDirect() {
+    try {
+      this.setState({ connectionNotice: null });
+      this.handle_solve_status("Connecting...");
+      console.log("Requesting cube...");
+      const cube = await connectGanCube(this.provideGanMac);
+      console.log(`Connected: ${cube.deviceName}`);
+      this.setCachedGanMac(cube.device, cube.deviceMAC);
+      this.setState({ cube, gan: true });
+      this.handle_solve_status("Connected");
+
+      cube.events$.subscribe((event) => {
+        if (event.type === "MOVE") {
+          console.log("Move: " + event.move);
+          this.newMovesNotation(event.move);
+          return;
+        }
+
+        if (event.type === "DISCONNECT") {
+          console.log("Cube disconnected");
+          this.handle_solve_status("Connect Cube");
+        }
+      });
+
+      return true;
+    } catch (err) {
+      console.warn("[gan-web-bluetooth] connect failed:", err);
+      if (err && err.stack) {
+        console.warn("[gan-web-bluetooth] connect failed stack:", err.stack);
+      }
+      const msg = err && err.message ? err.message : String(err);
+      this.setState({
+        connectionNotice: `GAN direct connection failed: ${msg}`,
+      });
+      this.handle_solve_status("Connect Cube");
+      return false;
+    }
+  }
   componentDidUpdate = () => {
     document.getElementById("timer_element_2").focus();
   };
@@ -769,30 +896,55 @@ class App extends React.Component {
       body: JSON.stringify(setting),
     };
 
-    fetch("/parse", requestOptions)
-      //  fetch("http://127.0.0.1:8080/parse", requestOptions)
-      .then((response) =>
-        response.json().then((data) => {
-          result = data;
-          console.log("request to parsing server");
-          console.log(requestOptions);
-          this.addSolveToLocalStorage(result);
-          this.setState({ parsed_solve: result });
-          if ("cubedb" in result) {
-            this.setState({ parsed_solve_cubedb: result["cubedb"] });
-            console.log(result["cubedb"]);
-            // window.open(result["cubedb"]);
-          }
-          if ("txt" in result) {
-            console.log(result["txt"]);
-            this.setState({ parsed_solve_txt: result["txt"] });
-          }
+    const parseUrl =
+      window.location.port === "8080"
+        ? `${window.location.protocol}//${window.location.hostname}/parse`
+        : "/parse";
 
-          this.handle_solve_status("Ready for scrambling");
-        })
-      )
-      .catch((data) => {
+    fetch(parseUrl, requestOptions)
+      .then(async (response) => {
+        const rawBody = await response.text();
+        let data = null;
+
+        try {
+          data = rawBody ? JSON.parse(rawBody) : null;
+        } catch (error) {
+          console.log("Failed to parse /parse response body");
+          console.log(rawBody);
+          throw error;
+        }
+
+        if (!response.ok) {
+          console.log("/parse returned error status", response.status);
+          console.log(data);
+          throw new Error(
+            data && data.details ? data.details : `Parse failed with status ${response.status}`
+          );
+        }
+
+        return data;
+      })
+      .then((data) => {
+        result = data;
+        console.log("request to parsing server");
+        console.log(requestOptions);
+        this.addSolveToLocalStorage(result);
+        this.setState({ parsed_solve: result });
+        if ("cubedb" in result) {
+          this.setState({ parsed_solve_cubedb: result["cubedb"] });
+          console.log(result["cubedb"]);
+          // window.open(result["cubedb"]);
+        }
+        if ("txt" in result) {
+          console.log(result["txt"]);
+          this.setState({ parsed_solve_txt: result["txt"] });
+        }
+
+        this.handle_solve_status("Ready for scrambling");
+      })
+      .catch((error) => {
         console.log(requestOptions["body"]);
+        console.log(error);
         this.handle_solve_status("Parsing didn't succeed");
       });
   };
@@ -839,7 +991,12 @@ class App extends React.Component {
             />
           </div>
           <div class="connect_cube">
-            <ConnectCube onConnect={this.GiikerCube} />
+                <ConnectCube onConnect={this.connectGanCubeDirect} />
+                {this.state.connectionNotice ? (
+                  <div className="alert alert-warning m-1" role="alert">
+                    {this.state.connectionNotice}
+                  </div>
+                ) : null}
           </div>
           <div class="trainbld_header">TrainBLD</div>
           <div
@@ -1390,9 +1547,18 @@ class App extends React.Component {
                 });
             } else {
               //not support
-              console.log('Gan not supported')
+              console.log('Gan not supported');
               //logohint.push('Not support your Gan cube');
             }
+          })
+          .catch(function (err) {
+            // If the meta service/characteristic is not available, continue without decoder/encryption.
+            console.warn('[gancube] checkHardware failed or meta service not present, continuing without meta:', err);
+            decoder = null;
+            try {
+              this_App.setState({ connectionNotice: 'GAN meta service not present — continuing without meta.' });
+            } catch (e) {}
+            return Promise.resolve();
           });
       }
 
@@ -1404,30 +1570,96 @@ class App extends React.Component {
             return checkHardware(server);
           })
           .then(function () {
-            return _server.getPrimaryService(SERVICE_UUID_DATA);
+            // Try to get the known GAN data service first, but if it's missing
+            // attempt to discover the characteristics across all available services.
+            return _server
+              .getPrimaryService(SERVICE_UUID_DATA)
+              .then(function (service_data) {
+                _service_data = service_data;
+                return Promise.resolve();
+              })
+              .catch(function (err) {
+                console.warn('[gancube] primary data service not found directly:', err);
+                // Try to find a service that exposes the GAN characteristics
+                return _server.getPrimaryServices().then(function (services) {
+                  var found = false;
+                  var seq = Promise.resolve();
+                  services.forEach(function (s) {
+                    seq = seq.then(function () {
+                      if (found) return Promise.resolve();
+                      return s.getCharacteristic(CHRCT_UUID_F2).then(function (chr) {
+                        _service_data = s;
+                        _chrct_f2 = chr;
+                        found = true;
+                      }).catch(function () {
+                        return Promise.resolve();
+                      });
+                    });
+                  });
+                  return seq.then(function () {
+                    if (found) return Promise.resolve();
+                    return Promise.reject(new Error('GAN data characteristics not found on any service'));
+                  });
+                });
+              });
           })
-          .then(function (service_data) {
-            _service_data = service_data;
-            return _service_data.getCharacteristic(CHRCT_UUID_F2);
+          .then(function () {
+            // Ensure we have f2 characteristic. If it wasn't set during discovery,
+            // try to obtain it from the chosen service.
+            if (!_chrct_f2) {
+              return _service_data.getCharacteristic(CHRCT_UUID_F2).then(function (chr) {
+                _chrct_f2 = chr;
+                return Promise.resolve();
+              });
+            }
+            return Promise.resolve();
           })
-          .then(function (chrct) {
-            _chrct_f2 = chrct;
-            return _service_data.getCharacteristic(CHRCT_UUID_F5);
+          .then(function () {
+            // Get remaining characteristics if available; ignore individual failures.
+            return _service_data.getCharacteristic(CHRCT_UUID_F5)
+              .then(function (chr) {
+                _chrct_f5 = chr;
+              })
+              .catch(function () {
+                console.warn('[gancube] CHRCT_UUID_F5 not available on selected service');
+              })
+              .then(function () {
+                return _service_data.getCharacteristic(CHRCT_UUID_F6)
+                  .then(function (chr) {
+                    _chrct_f6 = chr;
+                  })
+                  .catch(function () {
+                    console.warn('[gancube] CHRCT_UUID_F6 not available on selected service');
+                  });
+              })
+              .then(function () {
+                return _service_data.getCharacteristic(CHRCT_UUID_F7)
+                  .then(function (chr) {
+                    _chrct_f7 = chr;
+                  })
+                  .catch(function () {
+                    console.warn('[gancube] CHRCT_UUID_F7 not available on selected service');
+                  });
+              });
           })
-          .then(function (chrct) {
-            _chrct_f5 = chrct;
-            return _service_data.getCharacteristic(CHRCT_UUID_F6);
-          })
-          .then(function (chrct) {
+          .then(function () {
+            // Connected and (partially) initialized
             this_App.handle_solve_status("Ready for scrambling");
             this_App.setState({ gan: true });
-            _chrct_f6 = chrct;
-            return _service_data.getCharacteristic(CHRCT_UUID_F7);
+            return loopRead();
           })
-          .then(function (chrct) {
-            _chrct_f7 = chrct;
-          })
-          .then(loopRead);
+          .catch(function (err) {
+            console.warn('[gancube] init failed or required characteristics not found:', err);
+            try {
+              this_App.setState({ connectionNotice: 'GAN data characteristics not found - BLE unavailable for this device.' });
+            } catch (e) {}
+            try {
+              connectBridge();
+            } catch (e) {
+              console.error('[gancube] failed to start bridge fallback', e);
+            }
+            return Promise.resolve();
+          });
       }
 
       var prevMoves;
@@ -2066,80 +2298,7 @@ class App extends React.Component {
       };
     })();
     function init() {
-      var cube = null;
-      if (!navigator || !navigator.bluetooth) {
-        alert(
-          "Bluetooth API is not available. Ensure https access, and try chrome with chrome://flags/#enable-experimental-web-platform-features enabled"
-        );
-        return Promise.resolve();
-      }
-      var go_cube_service = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-
-      return navigator.bluetooth
-        .requestDevice({
-          filters: [
-            {
-              namePrefix: "Gi",
-            },
-            {
-              namePrefix: "Mi Smart Magic Cube",
-            },
-            {
-              namePrefix: "GAN",
-            },
-            {
-              namePrefix: "MHC",
-            },
-            {
-              namePrefix: "GoCube",
-            },
-            {
-              namePrefix: "Rubiks",
-            },
-            {
-              services: ["0000fe95-0000-1000-8000-00805f9b34fb"],
-            },
-            {
-              services: [go_cube_service], // services: [GiikerCube.opservs[0]]
-            },
-          ],
-          optionalServices: [].concat(
-            GiikerCube.opservs,
-            GanCube.opservs,
-            GoCube.opservs,
-            MoyuCube.opservs
-          ),
-        })
-        .then(function (device) {
-          console.log(device);
-          _device = device;
-          this_App.handle_solve_status("Connecting...");
-          if (
-            device.name.startsWith("Gi") ||
-            device.name.startsWith("Mi Smart Magic Cube")
-          ) {
-            cube = GiikerCube;
-            this_App.setState({ cube: cube });
-            return GiikerCube.init(device);
-          } else if (device.name.startsWith("GAN")) {
-            cube = GanCube;
-            this_App.setState({ cube: cube });
-            return GanCube.init(device);
-          } else if (
-            device.name.startsWith("GoCube") ||
-            device.name.startsWith("Rubiks")
-          ) {
-            cube = GoCube;
-            this_App.setState({ cube: cube });
-            return GoCube.init(device);
-          } else if (device.name.startsWith("MHC")) {
-            cube = MoyuCube;
-            this_App.setState({ cube: cube });
-            return MoyuCube.init(device);
-          } else {
-            return Promise.resolve();
-          }
-        });
+      return this_App.connectGanCubeDirect();
     }
 
     function newMovesNotation(move) {
@@ -2218,9 +2377,8 @@ class App extends React.Component {
         return ws;
     }
 
-
-    //init();
-    connectBridge()
+    init();
   };
 }
 export default App;
+

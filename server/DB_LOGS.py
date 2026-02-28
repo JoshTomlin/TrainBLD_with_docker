@@ -15,7 +15,7 @@ def convert_to_num(value):
         #print('found colon')
         minutes, seconds = value.split(":")
         #print(minutes, seconds, float(minutes) * 60 + float(seconds))
-        return float(minutes) * 60 + float(round(seconds, 2))
+        return float(minutes) * 60 + round(float(seconds), 2)
 
     #print(float(value))
     return float(value)
@@ -195,7 +195,7 @@ def calc_pauses(metadata):
     for comm in metadata['corner_comms']:
         total += comm['recog']
     if metadata['parity']:
-        total += moves['parity']['recog']
+        total += metadata['parity']['recog']
     return total
 
 def total_algs(metadata):

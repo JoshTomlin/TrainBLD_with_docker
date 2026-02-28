@@ -41,10 +41,9 @@ def parse(dict_params):
 
 @app.route('/parse', methods=['POST'])
 def handle_parse_request():
+    address = request.headers.get('X-Real-IP') or request.remote_addr
+    post_data = request.get_json(silent=True)
     try:
-        address = request.headers.get('X-Real-IP') or request.remote_addr
-        post_data = request.get_json()
-
         if not post_data:
             return make_response("Invalid JSON payload", 400)
 
@@ -52,11 +51,12 @@ def handle_parse_request():
         solve_str = data[0]
         cube = data[1]
         
-        # Optionally log the request (commented out)
+        # Logging must not break parse responses.
         try:
             add_log_of_request(post_data, address, '200', cube=cube)
-        except:           
-            add_log_of_request(post_data, address, '404', error=traceback.format_exc())
+        except Exception:
+            print("add_log_of_request success-path failed")
+            print(traceback.format_exc())
 
         response = make_response(solve_str, 200)
         response.headers['Content-Type'] = 'application/json; charset=utf-8'
@@ -65,7 +65,11 @@ def handle_parse_request():
 
     except Exception as e:
         print(traceback.format_exc())
-        add_log_of_request(post_data, address, '404', error=traceback.format_exc())
+        try:
+            add_log_of_request(post_data or {}, address, '404', error=traceback.format_exc())
+        except Exception:
+            print("add_log_of_request error-path failed")
+            print(traceback.format_exc())
         return make_response({"error": "An error occurred", "details": traceback.format_exc()}, 500)
 
 @app.route('/options', methods=['OPTIONS'])
