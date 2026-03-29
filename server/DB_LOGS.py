@@ -40,6 +40,7 @@ def process_solve_stats(stats, move_times):
     alg_total = 0
     move_count = 0
     metadata = {}
+    comm_events = []
 
     cur_recog = 0
     new_alg = False
@@ -81,10 +82,14 @@ def process_solve_stats(stats, move_times):
                         edge_comms[-1]['alg'] = edge_comms[-1]['alg'] + " " + data['alg']
                         edge_comms[-1]['alg_length'] += data['alg_length']
                     else:
+                        data['phase'] = 'edge'
                         edge_comms.append(data)
+                        comm_events.append(data)
 
                 else: 
+                    data['phase'] = 'edge'
                     edge_comms.append(data)
+                    comm_events.append(data)
             elif move['comment']['piece_type_2']['corner']:
                 # Check for cancellation with a helper
                 if cor_comms:
@@ -94,11 +99,17 @@ def process_solve_stats(stats, move_times):
                         cor_comms[-1]['alg'] = cor_comms[-1]['alg'] + " " + data['alg']
                         cor_comms[-1]['alg_length'] += data['alg_length']
                     else:
+                        data['phase'] = 'corner'
                         cor_comms.append(data)
+                        comm_events.append(data)
                 else:
+                        data['phase'] = 'corner'
                         cor_comms.append(data)
+                        comm_events.append(data)
             elif move['comment']['piece_type_2']['parity']:
-                parity = data.copy()
+                data['phase'] = 'parity'
+                parity = data
+                comm_events.append(data)
 
             new_alg = True
 
@@ -114,6 +125,7 @@ def process_solve_stats(stats, move_times):
     metadata['edge_comms'] = edge_comms
     metadata['corner_comms'] = cor_comms
     metadata['parity'] = parity
+    metadata['comm_events'] = comm_events
     metadata['alg_total'] = alg_total
     metadata['has_parity'] = has_parity
     metadata['move_count'] = move_count

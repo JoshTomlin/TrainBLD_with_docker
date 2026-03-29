@@ -1,6 +1,5 @@
 // based on https://codesandbox.io/s/31rvox7ojm Patryk Mazurkiewicz patmaz
-import React, { Component } from "react";
-import { ScrambleDisplay } from "scramble-display";
+import React from "react";
 
 class Timer extends React.Component {
   constructor(props) {
@@ -16,6 +15,7 @@ class Timer extends React.Component {
       currentTimeMin: 0,
       pressKeyTimeCount: null,
     };
+    this.holdTimeout = null;
   }
 
   formatTime = (val, ...rest) => {
@@ -24,7 +24,7 @@ class Timer extends React.Component {
       value = "0" + value;
     }
 
-    if (rest[0] === "ms" && value.length == 3) {
+    if (rest[0] === "ms" && value.length === 3) {
       value = value.slice(0, 2);
     }
     return value;
@@ -45,6 +45,14 @@ class Timer extends React.Component {
     this.pace();
   };
 
+  canStop = () => {
+    const minStopDelayMs = this.props.minStopDelayMs || 350;
+    if (!this.state.start_time) {
+      return false;
+    }
+    return Date.now() - this.state.start_time >= minStopDelayMs;
+  };
+
   pace = () => {
     const diff = Date.now() - this.state.start_time;
     this.setState({ currentTimeMs: diff % 1000 });
@@ -61,84 +69,142 @@ class Timer extends React.Component {
     });
   };
 
+  componentWillUnmount() {
+    if (this.holdTimeout) {
+      clearTimeout(this.holdTimeout);
+      this.holdTimeout = null;
+    }
+    clearInterval(this.watch);
+  }
+
+  startHold = () => {
+    if (this.state.running) {
+      return;
+    }
+
+    if (this.holdTimeout) {
+      clearTimeout(this.holdTimeout);
+    }
+
+    this.setState({ pressKeyTimeCount: Date.now(), ready_state: "text-info" });
+    this.holdTimeout = setTimeout(() => {
+      this.setState({ ready_state: "text-success" });
+      this.holdTimeout = null;
+    }, 180);
+  };
+
+  cancelHold = () => {
+    if (this.holdTimeout) {
+      clearTimeout(this.holdTimeout);
+      this.holdTimeout = null;
+    }
+    this.setState({ ready_state: "", pressKeyTimeCount: null });
+  };
+
   handle_touch_press_up = (event) => {
-    var current_time = Date.now();
-    console.log(current_time - this.state.pressKeyTimeCount);
-    if (current_time - this.state.pressKeyTimeCount > 150) {
-      if (this.state.ready_state === "text-success") {
-        this.reset();
-        this.start();
-        this.props.onStart(Date.now());
-      }
-    } else {
-      this.setState({ ready_state: "" });
-      this.setState({ pressKeyTimeCount: null });
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
+    }
+    if (this.state.running) {
+      return;
+    }
+
+    const canStart = this.state.ready_state === "text-success";
+    this.cancelHold();
+    if (canStart) {
+      this.reset();
+      this.start();
+      this.props.onStart(Date.now());
     }
   };
 
   handle_touch_press_down = (event) => {
-    if (this.state.pressKeyTimeCount == null) {
-      console.log("here");
-      this.setState({ pressKeyTimeCount: Date.now() });
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
     }
-    if (!this.state.running && this.state.ready_state != "text-success") {
-      this.setState({ ready_state: "text-success" });
-    }
-    if (this.state.running && this.state.ready_state == "text-success") {
-      this.setState({ pressKeyTimeCount: null });
-      this.setState({ ready_state: "" });
+    if (this.state.running) {
+      if (!this.canStop()) {
+        return;
+      }
+      this.cancelHold();
       this.stop();
       this.props.onStop(this.state.update_ref);
+      return;
     }
+
+    this.startHold();
   };
   handle_key_press_up = (event) => {
-    var current_time = Date.now();
+    if (event.key !== " ") {
+      return;
+    }
 
-    if (current_time - this.state.pressKeyTimeCount > 150) {
-      if (this.state.ready_state === "text-success" && event.key === " ") {
-        this.reset();
-        this.start();
-        this.props.onStart(Date.now());
-      }
-    } else {
-      this.setState({ ready_state: "" });
-      this.setState({ pressKeyTimeCount: null });
+    if (this.state.running) {
+      return;
+    }
+
+    const canStart = this.state.ready_state === "text-success";
+    this.cancelHold();
+    if (canStart) {
+      this.reset();
+      this.start();
+      this.props.onStart(Date.now());
     }
   };
   handle_key_press_down = (event) => {
-    var cur_diff;
-    if (this.state.pressKeyTimeCount == null) {
-      this.setState({ pressKeyTimeCount: Date.now() });
-      cur_diff = 0;
-    } else {
-      var cur_diff = Date.now() - this.state.pressKeyTimeCount;
-    }
-    if (
-      !this.state.running &&
-      event.key === " " &&
-      this.state.ready_state != "text-success"
-    ) {
-      this.setState({ ready_state: "text-info" });
+    if (event.key !== " ") {
+      return;
     }
 
-    if (
-      !this.state.running &&
-      event.key === " " &&
-      this.state.ready_state != "text-success" &&
-      cur_diff > 150
-    ) {
-      this.setState({ ready_state: "text-success" });
-    }
-    if (
-      this.state.running &&
-      event.key === " " &&
-      this.state.ready_state == "text-success"
-    ) {
-      this.setState({ pressKeyTimeCount: null });
-      this.setState({ ready_state: "" });
+    event.preventDefault();
+
+    if (this.state.running) {
+      if (!this.canStop()) {
+        return;
+      }
+      this.cancelHold();
       this.stop();
       this.props.onStop(this.state.update_ref);
+      return;
     }
+
+    if (this.state.pressKeyTimeCount == null) {
+      this.startHold();
+    }
+  };
+
+  handle_mouse_up = (event) => {
+    if (event.button !== 0 || this.state.running) {
+      return;
+    }
+
+    const canStart = this.state.ready_state === "text-success";
+    this.cancelHold();
+    if (canStart) {
+      this.reset();
+      this.start();
+      this.props.onStart(Date.now());
+    }
+  };
+
+  handle_mouse_down = (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (this.state.running) {
+      if (!this.canStop()) {
+        return;
+      }
+      this.cancelHold();
+      this.stop();
+      this.props.onStop(this.state.update_ref);
+      return;
+    }
+
+    this.startHold();
   };
 
   // componentDidUpdate() {
@@ -148,38 +214,33 @@ class Timer extends React.Component {
     return (
       <div
         id="timer_element_2"
-        style={{
-          border: "none",
-          backgroundColor: "transparent",
-          resize: "none",
-          outline: "none",
-        }}
+        className="timer_surface"
         tabIndex="0"
         onKeyUp={this.handle_key_press_up}
         onKeyDown={this.handle_key_press_down}
         onTouchStart={this.handle_touch_press_down}
         onTouchEnd={this.handle_touch_press_up}
+        onMouseDown={this.handle_mouse_down}
+        onMouseUp={this.handle_mouse_up}
+        onContextMenu={(event) => event.preventDefault()}
       >
-        <div className="row">
-          <div className="col-12">
-            <div className={this.state.ready_state}>
-              <div class="solve_status">{this.props.solve_status}</div>
-            </div>
+        <div className={`timer_status_wrap ${this.state.ready_state}`}>
+          <div className="solve_status">
+            {this.state.running
+              ? "Tap to stop"
+              : this.state.ready_state === "text-success"
+              ? "Release to start"
+              : this.state.ready_state === "text-info"
+              ? "Hold..."
+              : this.props.solve_status}
           </div>
         </div>
-        <div className="row ">
-          <div className="col-8 text-start timer_on_screen">
-            {this.formatTime(this.state.currentTimeMin)}:
-            {this.formatTime(this.state.currentTimeSec)}.
-            {this.formatTime(this.state.currentTimeMs, "ms")}
-          </div>
-          <div className="col-3 ms-5">
-            <scramble-display
-              class="scramble_image"
-              scramble={this.props.scramble}
-            ></scramble-display>
-          </div>
+        <div className="timer_on_screen">
+          {this.formatTime(this.state.currentTimeMin)}:
+          {this.formatTime(this.state.currentTimeSec)}.
+          {this.formatTime(this.state.currentTimeMs, "ms")}
         </div>
+        {this.props.footer ? <div className="timer_footer">{this.props.footer}</div> : null}
       </div>
     );
   }

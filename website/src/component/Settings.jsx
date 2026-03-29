@@ -1,11 +1,7 @@
-import React, { Component } from "react";
-import { useState } from "react";
+import React from "react";
 import "bootstrap/dist/css/bootstrap.css";
-import Accordion from "react-bootstrap/Accordion";
-import Nav from "react-bootstrap/Nav";
 import Tab from "react-bootstrap/Tab";
 import Tabs from "react-bootstrap/Tabs";
-import Container from "react-bootstrap/Container";
 import SettingGeneral from "./SettingsGeneral";
 import SettingLetterScheme from "./SettingLetterScheme";
 import Collapse from "react-bootstrap/Collapse";
@@ -59,37 +55,33 @@ class Setting extends React.Component {
       this.handle_save_setting();
     }
   }
+  updateSettingState = (nextState) => {
+    this.setState(nextState, this.handle_save_setting);
+  };
   handle_move_count_change = (event) => {
-    this.setState({ gen_with_move_count: event.target.checked });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ gen_with_move_count: event.target.checked });
   };
   handle_apply_letter_pairs_change = (event) => {
-    this.setState({ parse_with_letter_pair: event.target.checked });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ parse_with_letter_pair: event.target.checked });
   };
   handle_corner_buffer = (event) => {
-    this.setState({ corner_buffer: event.target.value });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ corner_buffer: event.target.value });
   };
   handle_edge_buffer = (event) => {
-    this.setState({ edge_buffer: event.target.value });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ edge_buffer: event.target.value });
   };
   handle_cube_oreintation = (event) => {
-    this.setState({ cube_oreintation: event.target.value });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ cube_oreintation: event.target.value });
   };
   handle_scramble_type = (event) => {
-    this.setState({ scramble_type: event.target.value });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ scramble_type: event.target.value });
   };
 
 
   handle_letter_pair_dict = (event) => {
     const letter_pair_dict_new = { ...this.state.letter_pair_dict };
     letter_pair_dict_new[event.target.id] = event.target.value;
-    this.setState({ letter_pair_dict: letter_pair_dict_new });
-    this.setState({ setting_save_statue: " - Changes unsaved" });
+    this.updateSettingState({ letter_pair_dict: letter_pair_dict_new });
   };
 
   handle_save_setting = () => {
@@ -193,7 +185,183 @@ class Setting extends React.Component {
     };
     return letter_pair_dict;
   };
+  render_embedded_settings = () => {
+    return (
+      <div className="settings_screen">
+        <div className="settings_section">
+          <div className="settings_section_label">Connectivity</div>
+          <div className="settings_card settings_card_connection">
+            <div className="settings_connection_icon">B</div>
+            <div className="settings_connection_text">
+              <div className="settings_card_title">GAN i3 Smart Cube</div>
+              <div className="settings_card_subtitle">
+                {this.props.cur_setting["SMART_CUBE"] ? "Connected" : "Ready to connect"}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="settings_inline_action"
+              onClick={this.props.onManageCube}
+            >
+              Manage
+            </button>
+          </div>
+        </div>
+
+        <div className="settings_section">
+          <div className="settings_section_label">Buffers</div>
+          <div className="settings_buffer_grid">
+            <label className="settings_compact_card">
+              <span className="settings_compact_label">Corner</span>
+              <select
+                className="settings_compact_select"
+                value={this.state.corner_buffer}
+                onChange={this.handle_corner_buffer}
+              >
+                <option value="UFR">UFR</option>
+                <option value="UBL">UBL</option>
+                <option value="UBR">UBR</option>
+                <option value="UFL">UFL</option>
+                <option value="LBU">LBU</option>
+                <option value="LFU">LFU</option>
+                <option value="LFD">LFD</option>
+                <option value="LDB">LDB</option>
+                <option value="FUL">FUL</option>
+                <option value="FUR">FUR</option>
+                <option value="FRD">FRD</option>
+                <option value="FDL">FDL</option>
+                <option value="RFU">RFU</option>
+                <option value="RBU">RBU</option>
+                <option value="RBD">RBD</option>
+                <option value="RFD">RFD</option>
+                <option value="BUR">BUR</option>
+                <option value="BUL">BUL</option>
+                <option value="BLD">BLD</option>
+                <option value="BRD">BRD</option>
+                <option value="DFL">DFL</option>
+                <option value="DFR">DFR</option>
+                <option value="DBR">DBR</option>
+                <option value="DBL">DBL</option>
+              </select>
+            </label>
+            <label className="settings_compact_card">
+              <span className="settings_compact_label">Edge</span>
+              <select
+                className="settings_compact_select"
+                value={this.state.edge_buffer}
+                onChange={this.handle_edge_buffer}
+              >
+                <option value="UF">UF</option>
+                <option value="UB">UB</option>
+                <option value="UR">UR</option>
+                <option value="UL">UL</option>
+                <option value="LU">LU</option>
+                <option value="LF">LF</option>
+                <option value="LD">LD</option>
+                <option value="LB">LB</option>
+                <option value="FU">FU</option>
+                <option value="FR">FR</option>
+                <option value="FD">FD</option>
+                <option value="FL">FL</option>
+                <option value="RU">RU</option>
+                <option value="RB">RB</option>
+                <option value="RD">RD</option>
+                <option value="RF">RF</option>
+                <option value="BU">BU</option>
+                <option value="BL">BL</option>
+                <option value="BD">BD</option>
+                <option value="BR">BR</option>
+                <option value="DF">DF</option>
+                <option value="DR">DR</option>
+                <option value="DB">DB</option>
+                <option value="DL">DL</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="settings_section">
+          <div className="settings_section_label">Global Orientation</div>
+          <label className="settings_list_card settings_orientation_card">
+            <span className="settings_list_title">Top / Front</span>
+            <select
+              className="settings_inline_select"
+              value={this.state.cube_oreintation}
+              onChange={this.handle_cube_oreintation}
+            >
+              <option value="white-green">White-Green</option>
+              <option value="white-blue">White-Blue</option>
+              <option value="white-orange">White-Orange</option>
+              <option value="white-red">White-Red</option>
+              <option value="green-white">Green-White</option>
+              <option value="green-yellow">Green-Yellow</option>
+              <option value="green-orange">Green-Orange</option>
+              <option value="green-red">Green-Red</option>
+              <option value="yellow-green">Yellow-Green</option>
+              <option value="yellow-blue">Yellow-Blue</option>
+              <option value="yellow-orange">Yellow-Orange</option>
+              <option value="yellow-red">Yellow-Red</option>
+              <option value="blue-white">Blue-White</option>
+              <option value="blue-yellow">Blue-Yellow</option>
+              <option value="blue-orange">Blue-Orange</option>
+              <option value="blue-red">Blue-Red</option>
+              <option value="orange-white">Orange-White</option>
+              <option value="orange-green">Orange-Green</option>
+              <option value="orange-yellow">Orange-Yellow</option>
+              <option value="orange-blue">Orange-Blue</option>
+              <option value="red-white">Red-White</option>
+              <option value="red-green">Red-Green</option>
+              <option value="red-yellow">Red-Yellow</option>
+              <option value="red-blue">Red-Blue</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    );
+  };
   render() {
+    const showEmbedded = this.props.embedded === true;
+    const settingsBody = (
+      <div style={{ fontFamily: "Rubik" }}>
+        <div className="setting_collapse_menu">
+          <Tabs defaultActiveKey="first">
+            <Tab eventKey="first" title="General">
+              <SettingGeneral
+                handle_reset_setting={this.handle_reset_setting}
+                handle_save_setting={this.handle_save_setting}
+                id={this.props.id}
+                onChange_cubedb={this.handle_cubedb_txt}
+                parse_with_letter_pair={this.state.parse_with_letter_pair}
+                onChange_move_count={this.handle_move_count_change}
+                onChange_apply_letter_pair={
+                  this.handle_apply_letter_pairs_change
+                }
+                onChange_corner_buffer={this.handle_corner_buffer}
+                onChange_edge_buffer={this.handle_edge_buffer}
+                onChange_cube_oreintation={this.handle_cube_oreintation}
+                onChange_scramble_type={this.handle_scramble_type}
+                edge_buffer={this.state.edge_buffer}
+                corner_buffer={this.state.corner_buffer}
+                cube_oreintation={this.state.corner_buffer}
+                scramble_type={this.props.scramble_type}
+                cur_setting={this.props.cur_setting}
+              />
+            </Tab>
+            <Tab eventKey="second" title="letter scheme">
+              <SettingLetterScheme
+                letter_pair_dict={this.state.letter_pair_dict}
+                onChange_letter_pair_dict={this.handle_letter_pair_dict}
+              />
+            </Tab>
+          </Tabs>
+        </div>
+      </div>
+    );
+
+    if (showEmbedded) {
+      return <div className="settings_embedded_shell">{this.render_embedded_settings()}</div>;
+    }
+
     return (
       <React.Fragment>
         <button
@@ -207,42 +375,7 @@ class Setting extends React.Component {
         </button>
         <div className="text-black">
           <Collapse in={this.state.open}>
-            <div style={{ fontFamily: "Rubik" }}>
-              <div class="setting_collapse_menu">
-                <Tabs defaultActiveKey="first">
-                  <Tab eventKey="first" title="General">
-                    <SettingGeneral
-                      handle_reset_setting={this.handle_reset_setting}
-                      handle_save_setting={this.handle_save_setting}
-                      id={this.props.id}
-                      onChange_cubedb={this.handle_cubedb_txt}
-                      parse_with_letter_pair={this.state.parse_with_letter_pair}
-                      onChange_move_count={this.handle_move_count_change}
-                      onChange_apply_letter_pair={
-                        this.handle_apply_letter_pairs_change
-                      }
-                      onChange_corner_buffer={this.handle_corner_buffer}
-                      onChange_edge_buffer={this.handle_edge_buffer}
-                      onChange_cube_oreintation={this.handle_cube_oreintation}
-                      onChange_scramble_type={this.handle_scramble_type}
-
-                      edge_buffer={this.state.edge_buffer}
-                      corner_buffer={this.state.corner_buffer}
-                      cube_oreintation={this.state.corner_buffer}
-                      scramble_type={this.props.scramble_type}
-                      cur_setting={this.props.cur_setting}
-
-                    />
-                  </Tab>
-                  <Tab eventKey="second" title="letter scheme">
-                    <SettingLetterScheme
-                      letter_pair_dict={this.state.letter_pair_dict}
-                      onChange_letter_pair_dict={this.handle_letter_pair_dict}
-                    />
-                  </Tab>
-                </Tabs>
-              </div>
-            </div>
+            {settingsBody}
           </Collapse>{" "}
         </div>
       </React.Fragment>

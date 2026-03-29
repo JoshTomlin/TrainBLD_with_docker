@@ -1,17 +1,12 @@
 import React from "react";
-import * as SRScrambler from "sr-scrambler";
 import cubeSolver from "cube-solver";
 import { connectGanCube } from "gan-web-bluetooth";
-import ConnectCube from "./component/ConnectCube";
 import Setting from "./component/Settings";
 import "bootstrap/dist/css/bootstrap.css";
-import Scrambler from "./component/Scrambler";
 import Timer from "./component/Timer";
 import { Helmet } from "react-helmet";
-import logo from "./images/logo2.png";
 
 import LZString from "lz-string";
-import SolveStats from "./component/SolveStats";
 import "react-base-table/styles.css";
 
 class App extends React.Component {
@@ -21,7 +16,14 @@ class App extends React.Component {
     this.connectGanCubeDirect = this.connectGanCubeDirect.bind(this);
     this.newMovesNotation = this.newMovesNotation.bind(this);
     this.state = {
+      activeView: "solve",
+      showMenu: false,
+      showSettings: false,
+      showLastSolveDetails: false,
+      loadingSolveDetails: false,
       gan: false,
+      sessions: [],
+      activeSessionId: null,
       url_stats: "",
       averages: {
         best: { time: 10000, solve: {} },
@@ -51,12 +53,14 @@ class App extends React.Component {
       cube_moves: [],
       cube_moves_time: [],
       cube: null,
+      connectionNotice: null,
       generated_setting: "",
       timeStart: null,
       timeFinish: null,
       parsed_solve: null,
       parsed_solve_txt: null,
       parsed_solve_cubedb: null,
+      selectedSolveDetails: null,
       parse_settings:
         localStorage.getItem("setting") === null
           ? {
@@ -68,7 +72,7 @@ class App extends React.Component {
               NAME_OF_SOLVE: "example_smart_cube",
               GEN_PARSED_TO_CUBEDB: true,
               GEN_PARSED_TO_TXT: true,
-              SMART_CUBE: true,
+              SMART_CUBE: false,
               COMMS_UNPARSED: false,
               EDGES_BUFFER: "UF",
               CORNER_BUFFER: "UFR",
@@ -91,7 +95,467 @@ class App extends React.Component {
   componentDidMount = () => {
     this.initialStatsFromLocalstorage();
     this.handle_scramble();
+    this.syncSessionsFromServer();
   };
+  parseJsonStorage = (key, fallbackValue) => {
+    try {
+      const rawValue = localStorage.getItem(key);
+      return rawValue === null ? fallbackValue : JSON.parse(rawValue);
+    } catch (error) {
+      console.warn(`Failed to parse localStorage key "${key}"`, error);
+      return fallbackValue;
+    }
+  };
+
+  buildSessionRecord = (name, solves = []) => {
+    const timestamp = Date.now();
+    return {
+      id: `session-${timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      solves,
+    };
+  };
+
+  getActiveSessionFromList = (sessions, activeSessionId) => {
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      return null;
+    }
+    return sessions.find((session) => session.id === activeSessionId) || sessions[0];
+  };
+
+  persistSessionStorage = (sessions, activeSessionId) => {
+    const activeSession = this.getActiveSessionFromList(sessions, activeSessionId);
+    const solves = activeSession && Array.isArray(activeSession.solves) ? activeSession.solves : [];
+
+    localStorage.setItem("sessions", JSON.stringify(sessions));
+    localStorage.setItem("activeSessionId", JSON.stringify(activeSession ? activeSession.id : null));
+    localStorage.setItem("solves", JSON.stringify(solves));
+  };
+
+  ensureSessionStorage = () => {
+    let sessions = this.parseJsonStorage("sessions", []);
+    let activeSessionId = this.parseJsonStorage("activeSessionId", null);
+
+    if (!Array.isArray(sessions)) {
+      sessions = [];
+    }
+
+    sessions = sessions
+      .filter(Boolean)
+      .map((session, index) => ({
+        id: session.id || `session-restored-${index}`,
+        name: session.name || `Session ${index + 1}`,
+        createdAt: session.createdAt || Date.now(),
+        updatedAt: session.updatedAt || session.createdAt || Date.now(),
+        solves: Array.isArray(session.solves) ? session.solves : [],
+      }));
+
+    if (sessions.length === 0) {
+      const legacySolves = this.parseJsonStorage("solves", []);
+      const initialSession = this.buildSessionRecord(
+        legacySolves.length > 0 ? "Imported Session" : "Session 1",
+        Array.isArray(legacySolves) ? legacySolves : []
+      );
+      sessions = [initialSession];
+      activeSessionId = initialSession.id;
+    }
+
+    const activeSession = this.getActiveSessionFromList(sessions, activeSessionId);
+    const resolvedActiveSessionId = activeSession ? activeSession.id : sessions[0].id;
+
+    this.persistSessionStorage(sessions, resolvedActiveSessionId);
+
+    return {
+      sessions,
+      activeSessionId: resolvedActiveSessionId,
+      activeSession: this.getActiveSessionFromList(sessions, resolvedActiveSessionId),
+    };
+  };
+
+  updateParseSettings = (updates) => {
+    this.setState((prevState) => {
+      const parse_settings = {
+        ...prevState.parse_settings,
+        ...updates,
+      };
+      localStorage.setItem("setting", JSON.stringify(parse_settings));
+      return { parse_settings };
+    });
+  };
+
+  getApiOrigin = () =>
+    window.location.port === "8080"
+      ? `${window.location.protocol}//${window.location.hostname}`
+      : "";
+
+  apiRequest = async (path, options = {}) => {
+    const response = await fetch(`${this.getApiOrigin()}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+
+    const rawBody = await response.text();
+    const data = rawBody ? JSON.parse(rawBody) : null;
+
+    if (!response.ok) {
+      throw new Error(
+        data && data.details ? data.details : data && data.error ? data.error : `Request failed with status ${response.status}`
+      );
+    }
+
+    return data;
+  };
+
+  normalizeServerSolve = (solve) => ({
+    ...solve,
+    date: solve && solve.date ? new Date(solve.date).getTime() : Date.now(),
+  });
+
+  normalizeServerSession = (session) => ({
+    id: session.id,
+    name: session.name,
+    puzzleType: session.puzzle_type,
+    scrambleType: session.scramble_type,
+    createdAt: session.created_at ? new Date(session.created_at).getTime() : Date.now(),
+    updatedAt: session.updated_at ? new Date(session.updated_at).getTime() : Date.now(),
+    solves: Array.isArray(session.solves) ? session.solves.map(this.normalizeServerSolve) : [],
+  });
+
+  isServerSessionId = (sessionId) => {
+    if (typeof sessionId === "number") {
+      return Number.isFinite(sessionId);
+    }
+
+    if (typeof sessionId === "string") {
+      return /^\d+$/.test(sessionId);
+    }
+
+    return false;
+  };
+
+  applyServerSessions = (serverSessions, preferredActiveSessionId = null) => {
+    const normalizedSessions = Array.isArray(serverSessions)
+      ? serverSessions.map(this.normalizeServerSession)
+      : [];
+
+    if (normalizedSessions.length === 0) {
+      return;
+    }
+
+    const preferredId =
+      preferredActiveSessionId ||
+      this.state.activeSessionId ||
+      normalizedSessions[0].id;
+
+    const activeSession =
+      normalizedSessions.find((session) => session.id === preferredId) || normalizedSessions[0];
+
+    this.persistSessionStorage(normalizedSessions, activeSession.id);
+    this.setState(
+      {
+        sessions: normalizedSessions,
+        activeSessionId: activeSession.id,
+      },
+      this.initialStatsFromLocalstorage
+    );
+  };
+
+  syncSessionsFromServer = async () => {
+    const userId = this.state.parse_settings && this.state.parse_settings.ID;
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const data = await this.apiRequest(`/api/sessions?user_id=${encodeURIComponent(userId)}`, {
+        method: "GET",
+      });
+      if (data && Array.isArray(data.sessions)) {
+        this.applyServerSessions(data.sessions);
+      }
+    } catch (error) {
+      console.warn("Failed to sync sessions from server, using local cache", error);
+    }
+  };
+
+  fetchSolveDetails = async (solveId) => {
+    const userId = this.state.parse_settings && this.state.parse_settings.ID;
+    if (!userId || !solveId) {
+      return null;
+    }
+
+    const data = await this.apiRequest(
+      `/api/solves/${encodeURIComponent(solveId)}?user_id=${encodeURIComponent(userId)}`,
+      { method: "GET" }
+    );
+    return data && data.solve ? this.normalizeServerSolve(data.solve) : null;
+  };
+
+  openSolveDetails = (solve) => {
+    this.setState({
+      showLastSolveDetails: true,
+      loadingSolveDetails: Boolean(solve && solve.id),
+      selectedSolveDetails: solve || null,
+      parsed_solve_txt: (solve && solve.txt_solve) || "No parsed solve text available yet.",
+    });
+
+    if (!solve || !solve.id) {
+      return;
+    }
+
+    this.fetchSolveDetails(solve.id)
+      .then((detailedSolve) => {
+        if (!detailedSolve) {
+          return;
+        }
+
+        this.setState({
+          selectedSolveDetails: detailedSolve,
+          parsed_solve_txt: detailedSolve.txt_solve || "No parsed solve text available yet.",
+          loadingSolveDetails: false,
+        });
+      })
+      .catch((error) => {
+        console.warn("Failed to load solve details from server", error);
+        this.setState({ loadingSolveDetails: false });
+      });
+  };
+
+  createSessionOnServer = async (name) => {
+    const payload = {
+      user_id: this.state.parse_settings.ID,
+      name,
+      puzzle_type: "3x3 BLD",
+      scramble_type: this.state.parse_settings.SCRAMBLE_TYPE || "3x3",
+    };
+
+    const data = await this.apiRequest("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return data && data.session ? this.normalizeServerSession(data.session) : null;
+  };
+
+  setSmartCubeConnection = ({ connected, cube = null, gan = connected, connectionNotice = null }) => {
+    this.updateParseSettings({ SMART_CUBE: connected });
+    this.setState({
+      cube,
+      gan,
+      connectionNotice,
+    });
+  };
+
+  updateActiveSessionSolves = (updater) => {
+    const { sessions, activeSessionId } = this.ensureSessionStorage();
+    const nextSessions = sessions.map((session) => {
+      if (session.id !== activeSessionId) {
+        return session;
+      }
+
+      const currentSolves = Array.isArray(session.solves) ? [...session.solves] : [];
+      const nextSolves = updater(currentSolves);
+      return {
+        ...session,
+        solves: nextSolves,
+        updatedAt: Date.now(),
+      };
+    });
+
+    this.persistSessionStorage(nextSessions, activeSessionId);
+    this.setState({ sessions: nextSessions, activeSessionId }, this.initialStatsFromLocalstorage);
+  };
+
+  activateSession = (sessionId) => {
+    const { sessions } = this.ensureSessionStorage();
+    const activeSession = this.getActiveSessionFromList(sessions, sessionId);
+
+    if (!activeSession) {
+      return;
+    }
+
+    this.persistSessionStorage(sessions, activeSession.id);
+    this.setState(
+      {
+        sessions,
+        activeSessionId: activeSession.id,
+      },
+      this.initialStatsFromLocalstorage
+    );
+  };
+
+  startNewSession = () => {
+    const { sessions } = this.ensureSessionStorage();
+    const nextSessionName = `Session ${sessions.length + 1}`;
+
+    this.createSessionOnServer(nextSessionName)
+      .then((serverSession) => {
+        if (!serverSession) {
+          throw new Error("Session API returned no session");
+        }
+
+        const nextSessions = [...sessions, serverSession];
+        this.persistSessionStorage(nextSessions, serverSession.id);
+        this.setState(
+          {
+            activeView: "solve",
+            sessions: nextSessions,
+            activeSessionId: serverSession.id,
+          },
+          () => {
+            this.initialStatsFromLocalstorage();
+            this.handle_scramble();
+          }
+        );
+      })
+      .catch((error) => {
+        console.warn("Falling back to local-only session creation", error);
+        const nextSession = this.buildSessionRecord(nextSessionName);
+        const nextSessions = [...sessions, nextSession];
+
+        this.persistSessionStorage(nextSessions, nextSession.id);
+        this.setState(
+          {
+            activeView: "solve",
+            sessions: nextSessions,
+            activeSessionId: nextSession.id,
+          },
+          () => {
+            this.initialStatsFromLocalstorage();
+            this.handle_scramble();
+          }
+        );
+      });
+  };
+
+  getSessionSummary = (session) => {
+    const solves = Array.isArray(session && session.solves) ? session.solves : [];
+    const completed = solves.filter(({ DNF }) => !DNF);
+    const validTimes = solves
+      .filter(({ DNF, time_solve }) => !DNF && Number.isFinite(parseFloat(time_solve)))
+      .map(({ time_solve }) => parseFloat(time_solve));
+
+    return {
+      count: solves.length,
+      latest: solves.length ? solves[solves.length - 1] : null,
+      bestSingle: validTimes.length ? Math.min(...validTimes) : null,
+      successText: solves.length ? `${completed.length}/${solves.length}` : "--",
+    };
+  };
+
+  extractSolveMetricsFromText = (solveTxt) => {
+    if (!solveTxt) {
+      return {};
+    }
+
+    const firstLine = solveTxt.split("\n")[0] || "";
+    const timeMatches = firstLine.match(/[0-9]+:?[0-9]*\.[0-9]*/g) || [];
+
+    return {
+      isDnf: firstLine.toLowerCase().includes("dnf"),
+      time_solve: timeMatches[0] ? this.convert_time_to_sec(timeMatches[0]) : null,
+      memo_time: timeMatches[1] ? this.convert_time_to_sec(timeMatches[1]) : null,
+      exe_time: timeMatches[2] ? this.convert_time_to_sec(timeMatches[2]) : null,
+      fluidness: timeMatches[3] ? parseFloat(timeMatches[3]) : null,
+    };
+  };
+
+  buildFallbackSolveText = (setting, parseError) => {
+    const totalTime = this.convert_sec_to_format(parseFloat(setting.TIME_SOLVE || 0));
+    const memoTime = this.convert_sec_to_format(parseFloat(setting.MEMO || 0));
+    const execTime = this.convert_sec_to_format(
+      Math.max(parseFloat(setting.TIME_SOLVE || 0) - parseFloat(setting.MEMO || 0), 0)
+    );
+
+    return [
+      `Unparsed solve ${totalTime}(${memoTime},${execTime})`,
+      parseError ? `Parse error: ${parseError}` : "Solve saved without parsed reconstruction.",
+      `Scramble: ${setting.SCRAMBLE || ""}`,
+      `Solve: ${setting.SOLVE || ""}`,
+    ].join("\n");
+  };
+
+  formatCommToken = (comm) => {
+    if (!comm) {
+      return null;
+    }
+
+    if (comm.phase === "parity") {
+      return "parity";
+    }
+
+    if (comm.special_type === "flip" || comm.target_b === "flip") {
+      return "(flip)";
+    }
+
+    if (comm.special_type === "twist" || comm.target_b === "twist") {
+      return "(twist)";
+    }
+
+    return [comm.target_a, comm.target_b].filter(Boolean).join("");
+  };
+
+  groupCommBreakdown = (commStats = []) => {
+    return commStats.reduce(
+      (groups, comm) => {
+        if (comm.phase === "edge") {
+          const token = this.formatCommToken(comm);
+          if (token) {
+            groups.edges.push(token);
+          }
+        } else if (comm.phase === "corner") {
+          const token = this.formatCommToken(comm);
+          if (token) {
+            groups.corners.push(token);
+          }
+        } else if (comm.phase === "parity") {
+          groups.parity = true;
+        }
+        return groups;
+      },
+      { edges: [], corners: [], parity: false }
+    );
+  };
+
+  buildSolveRecord = (data, setting, parseError = null) => {
+    const parsedMetrics = this.extractSolveMetricsFromText(data && data.txt ? data.txt : "");
+    const fallbackTotal = parseFloat(setting.TIME_SOLVE || 0);
+    const fallbackMemo = parseFloat(setting.MEMO || 0);
+    const fallbackExe = Math.max(fallbackTotal - fallbackMemo, 0);
+
+    return {
+      date: Date.now(),
+      time_solve:
+        parsedMetrics.time_solve !== null && parsedMetrics.time_solve !== undefined
+          ? parsedMetrics.time_solve
+          : fallbackTotal,
+      memo_time:
+        parsedMetrics.memo_time !== null && parsedMetrics.memo_time !== undefined
+          ? parsedMetrics.memo_time
+          : fallbackMemo,
+      exe_time:
+        parsedMetrics.exe_time !== null && parsedMetrics.exe_time !== undefined
+          ? parsedMetrics.exe_time
+          : fallbackExe,
+      txt_solve:
+        data && data.txt ? data.txt : this.buildFallbackSolveText(setting, parseError),
+      link: data && data.cubedb ? data.cubedb : null,
+      fluidness:
+        parsedMetrics.fluidness !== null && parsedMetrics.fluidness !== undefined
+          ? parsedMetrics.fluidness
+          : null,
+      DNF: Boolean(parsedMetrics.isDnf),
+      scramble: setting.SCRAMBLE || "",
+      solve: setting.SOLVE || "",
+      parseError,
+    };
+  };
+
   newMovesNotation(move) {
     const cube_moves_new = [...this.state.cube_moves];
     const cube_moves_time_new = [...this.state.cube_moves_time];
@@ -182,11 +646,15 @@ class App extends React.Component {
       this.setState({ connectionNotice: null });
       this.handle_solve_status("Connecting...");
       console.log("Requesting cube...");
+      if (!navigator.bluetooth) {
+        throw new Error("Web Bluetooth is not available in this browser.");
+      }
       const cube = await connectGanCube(this.provideGanMac);
       console.log(`Connected: ${cube.deviceName}`);
       this.setCachedGanMac(cube.device, cube.deviceMAC);
-      this.setState({ cube, gan: true });
+      this.setSmartCubeConnection({ connected: true, cube, gan: true, connectionNotice: null });
       this.handle_solve_status("Connected");
+      window.setTimeout(() => this.handle_solve_status("Ready for scrambling"), 800);
 
       cube.events$.subscribe((event) => {
         if (event.type === "MOVE") {
@@ -197,6 +665,12 @@ class App extends React.Component {
 
         if (event.type === "DISCONNECT") {
           console.log("Cube disconnected");
+          this.setSmartCubeConnection({
+            connected: false,
+            cube: null,
+            gan: false,
+            connectionNotice: "Cube disconnected. Reconnect to resume smart-cube tracking.",
+          });
           this.handle_solve_status("Connect Cube");
         }
       });
@@ -208,7 +682,10 @@ class App extends React.Component {
         console.warn("[gan-web-bluetooth] connect failed stack:", err.stack);
       }
       const msg = err && err.message ? err.message : String(err);
-      this.setState({
+      this.setSmartCubeConnection({
+        connected: false,
+        cube: null,
+        gan: false,
         connectionNotice: `GAN direct connection failed: ${msg}`,
       });
       this.handle_solve_status("Connect Cube");
@@ -216,7 +693,14 @@ class App extends React.Component {
     }
   }
   componentDidUpdate = () => {
-    document.getElementById("timer_element_2").focus();
+    if (this.state.activeView !== "solve") {
+      return;
+    }
+
+    const timerElement = document.getElementById("timer_element_2");
+    if (timerElement && typeof timerElement.focus === "function") {
+      timerElement.focus();
+    }
   };
   convert_time_to_sec = (time) => {
     let split_time = time.split(":");
@@ -394,48 +878,64 @@ class App extends React.Component {
     }
   };
   plus_two_last_solve = () => {
-    let solve_stats = [...this.state.solves_stats];
-    let num_solve = solve_stats.length - 1;
-    solve_stats[num_solve]["time_solve"] =
-      parseFloat(solve_stats[num_solve]["time_solve"]) + 2;
-    solve_stats[num_solve]["exe_time"] =
-      parseFloat(solve_stats[num_solve]["exe_time"]) + 2;
-    localStorage.setItem("solves", JSON.stringify(solve_stats));
+    this.updateActiveSessionSolves((solve_stats) => {
+      const nextSolves = [...solve_stats];
+      const num_solve = nextSolves.length - 1;
 
-    this.initialStatsFromLocalstorage();
-    this.calc_best_average_after_delete();
+      if (num_solve < 0) {
+        return nextSolves;
+      }
+
+      nextSolves[num_solve] = {
+        ...nextSolves[num_solve],
+        time_solve: parseFloat(nextSolves[num_solve].time_solve) + 2,
+        exe_time: parseFloat(nextSolves[num_solve].exe_time) + 2,
+      };
+
+      return nextSolves;
+    });
   };
 
   delete_solve = (num_solve) => {
-    let solve_stats = [...this.state.solves_stats];
-    num_solve = solve_stats.length - num_solve - 1;
-    if (window.confirm("Are you sure you want to delete the solve?")) {
-      solve_stats.splice(num_solve, 1);
-      localStorage.setItem("solves", JSON.stringify(solve_stats));
+    if (!window.confirm("Are you sure you want to delete the solve?")) {
+      return;
     }
-    this.initialStatsFromLocalstorage();
-    this.calc_best_average_after_delete();
+
+    this.updateActiveSessionSolves((solve_stats) => {
+      const nextSolves = [...solve_stats];
+      const nextIndex = nextSolves.length - num_solve - 1;
+      nextSolves.splice(nextIndex, 1);
+      return nextSolves;
+    });
   };
   dnf_last_solve = () => {
-    let solve_stats = [...this.state.solves_stats];
-    let num_solve = solve_stats.length - 1;
+    this.updateActiveSessionSolves((solve_stats) => {
+      const nextSolves = [...solve_stats];
+      const num_solve = nextSolves.length - 1;
 
-    solve_stats[num_solve]["DNF"] = !solve_stats[num_solve]["DNF"];
-    localStorage.setItem("solves", JSON.stringify(solve_stats));
+      if (num_solve < 0) {
+        return nextSolves;
+      }
 
-    this.initialStatsFromLocalstorage();
-    this.calc_best_average_after_delete();
+      nextSolves[num_solve] = {
+        ...nextSolves[num_solve],
+        DNF: !nextSolves[num_solve].DNF,
+      };
+
+      return nextSolves;
+    });
   };
 
   delete_last_solve = () => {
-    let solve_stats = [...this.state.solves_stats];
-    let num_solve = solve_stats.length - 1;
-    if (window.confirm("Are you sure you want to delete last solve?")) {
-      solve_stats.splice(num_solve, 1);
-      localStorage.setItem("solves", JSON.stringify(solve_stats));
+    if (!window.confirm("Are you sure you want to delete last solve?")) {
+      return;
     }
-    this.initialStatsFromLocalstorage();
-    this.calc_best_average_after_delete();
+
+    this.updateActiveSessionSolves((solve_stats) => {
+      const nextSolves = [...solve_stats];
+      nextSolves.splice(nextSolves.length - 1, 1);
+      return nextSolves;
+    });
   };
   renderTableData = (solve_stats) => {
     let header_elem = (
@@ -657,51 +1157,75 @@ class App extends React.Component {
   };
 
   initialStatsFromLocalstorage = () => {
-    let solve_stats = [];
-    if (localStorage.getItem("solves") === null) {
-      localStorage.setItem("solves", JSON.stringify([]));
+    const { sessions, activeSessionId, activeSession } = this.ensureSessionStorage();
+    const solve_stats = activeSession && Array.isArray(activeSession.solves) ? activeSession.solves : [];
+    const storedAverages = this.parseJsonStorage("averages", this.state.averages);
+
+    if (solve_stats.length > 0) {
+      let url_csv = this.generateCsvURL(solve_stats, storedAverages);
+      this.setState({ url_stats: url_csv }, () => {});
     } else {
-      solve_stats = JSON.parse(localStorage.getItem("solves"));
-      if (solve_stats.length > 0) {
-        let url_csv = this.generateCsvURL(
-          solve_stats,
-          JSON.parse(localStorage.getItem("averages"))
-        );
-        this.setState({ url_stats: url_csv }, () => {});
-      }
+      this.setState({ url_stats: "" });
     }
-    this.setState({ solves_stats: solve_stats });
+
+    this.setState({ sessions, activeSessionId, solves_stats: solve_stats });
     this.renderTableData(solve_stats);
     this.initialAverages();
     this.calc_best_average();
   };
-  addSolveToLocalStorage = (data) => {
-    var rgx = /[0-9]+:?[0-9]*\.[0-9]*/g;
-    let solve_txt = data["txt"];
-    let times_str = solve_txt.split("\n")[0];
-    let times = [...times_str.match(rgx)];
-    let new_solve_stats = [...this.state.solves_stats];
+  addSolveToLocalStorage = (data, setting, parseError = null) => {
+    const solveStats = this.buildSolveRecord(data, setting, parseError);
 
-    let solve_stats = {
-      date: Date.now(),
-      time_solve: this.convert_time_to_sec(times[0]),
-      memo_time: this.convert_time_to_sec(times[1]),
-      exe_time: this.convert_time_to_sec(times[2]),
-      txt_solve: data["txt"],
-      link: data["cubedb"],
-    };
-    if (!times_str.toLowerCase().includes("dnf")) {
-      solve_stats["fluidness"] = times[3];
-      solve_stats["DNF"] = false;
-    } else {
-      solve_stats["DNF"] = true;
+    this.updateActiveSessionSolves((currentSolves) => [...currentSolves, solveStats]);
+  };
+  safelyStoreSolveResult = (result, setting) => {
+    try {
+      if (result && result.session && result.saved_solve) {
+        const normalizedSession = this.normalizeServerSession({
+          ...result.session,
+          solves: [],
+        });
+        const normalizedSolve = this.normalizeServerSolve(result.saved_solve);
+        const { sessions } = this.ensureSessionStorage();
+        const existingIndex = sessions.findIndex((session) => session.id === normalizedSession.id);
+        let nextSessions = [...sessions];
+
+        if (existingIndex >= 0) {
+          const existingSolves = Array.isArray(nextSessions[existingIndex].solves)
+            ? nextSessions[existingIndex].solves
+            : [];
+          nextSessions[existingIndex] = {
+            ...nextSessions[existingIndex],
+            ...normalizedSession,
+            solves: [...existingSolves, normalizedSolve],
+          };
+        } else {
+          nextSessions.push({
+            ...normalizedSession,
+            solves: [normalizedSolve],
+          });
+        }
+
+        this.persistSessionStorage(nextSessions, normalizedSession.id);
+        this.setState(
+          {
+            sessions: nextSessions,
+            activeSessionId: normalizedSession.id,
+          },
+          this.initialStatsFromLocalstorage
+        );
+        return;
+      }
+
+      this.addSolveToLocalStorage(result, setting);
+    } catch (error) {
+      console.error("Failed to store solve result from server response", error, result);
+      this.addSolveToLocalStorage(result, setting, "Server response merge failed");
+      this.setState({
+        connectionNotice:
+          "Solve completed, but syncing the server response failed. The solve was kept locally.",
+      });
     }
-
-    new_solve_stats.push(solve_stats);
-    this.setState({ solves_stats: new_solve_stats });
-
-    localStorage.setItem("solves", JSON.stringify(new_solve_stats));
-    this.initialStatsFromLocalstorage();
   };
   extract_solve_from_cube_moves = (timer_finish) => {
     let parse_setting_new = { ...this.state.parse_settings };
@@ -731,10 +1255,11 @@ class App extends React.Component {
 
     solve_time = ((time_end_solve - time_start_solve) / 1000).toFixed(2);
     console.log(time_end_solve, time_start_solve, solve_time)
-    parse_setting_new["SCRAMBLE"] = scramble
+    const extractedScramble = scramble
       .join(" ")
       .toString()
       .replace(/  +/g, " ");
+    parse_setting_new["SCRAMBLE"] = extractedScramble || this.state.scramble || "";
     parse_setting_new["SOLVE"] = solve
       .join(" ")
       .toString()
@@ -761,6 +1286,10 @@ class App extends React.Component {
 
     parse_setting_new["SOLVE_TIME_MOVES"] =
       JSON.stringify(cube_moves_time_diff);
+    parse_setting_new["SAVE_SOLVE"] = true;
+    parse_setting_new["SESSION_ID"] = this.isServerSessionId(this.state.activeSessionId)
+      ? this.state.activeSessionId
+      : null;
     this.setState({ parse_settings: parse_setting_new });
     return parse_setting_new;
   };
@@ -777,6 +1306,18 @@ class App extends React.Component {
     if (
       this.state.solve_status === "Connect Cube" &&
       next_status === "Connecting..."
+    ) {
+      this.setState({ solve_status: next_status });
+    }
+    if (
+      this.state.solve_status === "Connecting..." &&
+      next_status === "Connected"
+    ) {
+      this.setState({ solve_status: next_status });
+    }
+    if (
+      this.state.solve_status === "Connected" &&
+      next_status === "Ready for scrambling"
     ) {
       this.setState({ solve_status: next_status });
     }
@@ -815,7 +1356,7 @@ class App extends React.Component {
     }
   };
   handle_onStart_timer = (timer_start) => {
-    this.setState({ timeStart: timer_start });
+    this.setState({ timeStart: timer_start, moves_to_show: "" });
     let parse_setting_new = { ...this.state.parse_settings };
     var options = {
       hour: "2-digit",
@@ -845,17 +1386,34 @@ class App extends React.Component {
   handle_onStop_timer = (timer_finish) => {
     new Promise((resolve) => setTimeout(resolve, 400))
       .then((data) => {
+        const timeStart = this.state.timeStart;
+        const hasValidStart = Number.isFinite(timeStart);
+
         if (this.state.gan === true) {
+          if (!this.state.cube_moves_time.length) {
+            this.handle_accidental_timer_stop("No solve moves were recorded, so that stop was ignored.");
+            return;
+          }
           console.log("here gan");
           timer_finish =
             this.state.cube_moves_time[this.state.cube_moves_time.length - 1] +
             1;
         }
+
+        if (!hasValidStart || !Number.isFinite(timer_finish) || timer_finish <= timeStart) {
+          this.handle_accidental_timer_stop("Timer stop happened before a valid solve was recorded.");
+          return;
+        }
+
+        if (timer_finish - timeStart < 350) {
+          this.handle_accidental_timer_stop("Very short timer stop ignored.");
+          return;
+        }
+
         this.setState({ timeFinish: timer_finish });
         this.handle_solve_status("Parsing...");
         this.handle_parse_solve(timer_finish);
-        this.setState({ cube_moves: [] });
-        this.setState({ cube_moves_time: [] });
+        this.setState({ cube_moves: [], cube_moves_time: [], moves_to_show: "" });
         this.handle_scramble();
       })
       .catch((data) => console.log(data));
@@ -884,6 +1442,16 @@ class App extends React.Component {
     this.setState({ moves_to_show: "" });
     this.handle_solve_status("Ready for scrambling");
   };
+  handle_accidental_timer_stop = (message = "Accidental stop ignored") => {
+    this.setState({
+      cube_moves: [],
+      cube_moves_time: [],
+      moves_to_show: "",
+      connectionNotice: message,
+      timeFinish: null,
+    });
+    this.handle_solve_status("Ready for scrambling");
+  };
   handle_parse_solve = (timer_finish) => {
     const setting = this.extract_solve_from_cube_moves(timer_finish);
     console.log(setting);
@@ -896,10 +1464,7 @@ class App extends React.Component {
       body: JSON.stringify(setting),
     };
 
-    const parseUrl =
-      window.location.port === "8080"
-        ? `${window.location.protocol}//${window.location.hostname}/parse`
-        : "/parse";
+    const parseUrl = `${this.getApiOrigin()}/parse`;
 
     fetch(parseUrl, requestOptions)
       .then(async (response) => {
@@ -928,7 +1493,12 @@ class App extends React.Component {
         result = data;
         console.log("request to parsing server");
         console.log(requestOptions);
-        this.addSolveToLocalStorage(result);
+        if (result && result.save_error) {
+          console.warn("Solve parsed but failed to save on server", result.save_error);
+          this.setState({
+            connectionNotice: `Solve parsed, but syncing to the server failed. It was kept locally. ${result.save_error}`,
+          });
+        }
         this.setState({ parsed_solve: result });
         if ("cubedb" in result) {
           this.setState({ parsed_solve_cubedb: result["cubedb"] });
@@ -940,11 +1510,20 @@ class App extends React.Component {
           this.setState({ parsed_solve_txt: result["txt"] });
         }
 
+        this.safelyStoreSolveResult(result, setting);
+
         this.handle_solve_status("Ready for scrambling");
       })
       .catch((error) => {
         console.log(requestOptions["body"]);
         console.log(error);
+        const parseError = error && error.message ? error.message : "Unknown parse error";
+        this.addSolveToLocalStorage(null, setting, parseError);
+        this.setState({
+          parsed_solve: null,
+          parsed_solve_cubedb: null,
+          parsed_solve_txt: this.buildFallbackSolveText(setting, parseError),
+        });
         this.handle_solve_status("Parsing didn't succeed");
       });
   };
@@ -955,7 +1534,9 @@ class App extends React.Component {
     });
   };
   handle_moves_to_show = (cube_moves) => {
-    if (this.state.solve_status === "Scrambling") {
+    if (this.state.gan) {
+      this.setState({ moves_to_show: "" });
+    } else if (this.state.solve_status === "Scrambling") {
       this.setState({ moves_to_show: cube_moves.join(" ") });
     } else {
       this.setState({ moves_to_show: "" });
@@ -966,239 +1547,966 @@ class App extends React.Component {
   };
   handle_reset_stats = () => {
     if (window.confirm("Are you sure you want to reset stats?")) {
-      if (localStorage.getItem("solves") !== null) {
-        localStorage.removeItem("solves");
-      }
-      this.initialStatsFromLocalstorage();
+      this.updateActiveSessionSolves(() => []);
     }
   };
+  formatSummaryValue = (value, empty = "-") => {
+    if (value === null || value === undefined || value === "" || value === 10000) {
+      return empty;
+    }
+    return this.convert_sec_to_format(value);
+  };
+  formatMetricText = (value, suffix = "", empty = "--") => {
+    if (value === null || value === undefined || value === "" || value === 10000) {
+      return empty;
+    }
+
+    if (typeof value === "number") {
+      return `${this.convert_sec_to_format(value)}${suffix}`;
+    }
+
+    return `${value}${suffix}`;
+  };
+  copyScramble = () => {
+    if (!this.state.scramble || !navigator.clipboard) {
+      return;
+    }
+
+    navigator.clipboard.writeText(this.state.scramble).catch((error) => {
+      console.warn("Failed to copy scramble", error);
+    });
+  };
   desktop_layout = () => {
-    const styleleft = {
-      width: "245px",
+    const accuracyText = this.state.averages.success || "--";
+    const memoText = this.formatMetricText(this.state.averages.memo);
+    const execText = this.formatMetricText(this.state.averages.exe);
+    const ao5Text = this.formatSummaryValue(this.state.averages.ao5);
+    const sessions = [...this.state.sessions].sort(
+      (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+    );
+    const activeSession = this.getActiveSessionFromList(sessions, this.state.activeSessionId);
+    const activeSessionSummary = this.getSessionSummary(activeSession);
+    const recentSolves = [...this.state.solves_stats].slice().reverse();
+    const chartSolves = recentSolves
+      .filter(({ DNF, time_solve }) => !DNF && Number.isFinite(parseFloat(time_solve)))
+      .slice(0, 20);
+    const chartTimes = chartSolves.map(({ time_solve }) => parseFloat(time_solve));
+    const dnfCount = recentSolves.filter(({ DNF }) => DNF).length;
+    const completedCount = recentSolves.length - dnfCount;
+    const latestSolve = recentSolves[0] || null;
+    const latestFive = recentSolves.slice(0, 5);
+    const trendLabel =
+      latestFive.length >= 2 &&
+      !latestFive[0].DNF &&
+      !latestFive[latestFive.length - 1].DNF &&
+      Number.isFinite(parseFloat(latestFive[0].time_solve)) &&
+      Number.isFinite(parseFloat(latestFive[latestFive.length - 1].time_solve))
+        ? parseFloat(latestFive[0].time_solve) <= parseFloat(latestFive[latestFive.length - 1].time_solve)
+          ? "Trending faster"
+          : "Needs review"
+        : "Building data";
+    const bestSingle = recentSolves
+      .filter(({ DNF, time_solve }) => !DNF && Number.isFinite(parseFloat(time_solve)))
+      .reduce((best, solve) => {
+        const next = parseFloat(solve.time_solve);
+        if (best === null || next < best) {
+          return next;
+        }
+        return best;
+      }, null);
+    const sessionCount = recentSolves.length;
+    const troubleSolves = [...recentSolves]
+      .filter(({ time_solve }) => Number.isFinite(parseFloat(time_solve)))
+      .sort((a, b) => parseFloat(b.time_solve) - parseFloat(a.time_solve))
+      .slice(0, 3);
+    const formatDate = (dateValue) =>
+      new Date(dateValue).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    const chartPath =
+      chartTimes.length > 1
+        ? (() => {
+            const min = Math.min(...chartTimes);
+            const max = Math.max(...chartTimes);
+            const spread = Math.max(max - min, 0.01);
+            return chartTimes
+              .map((value, index) => {
+                const x = (index / (chartTimes.length - 1)) * 100;
+                const y = 100 - ((value - min) / spread) * 72 - 14;
+                return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+              })
+              .join(" ");
+          })()
+        : "";
+    const viewConfig = {
+      solve: {
+        title: "Solve",
+        eyebrow: "Live Session",
+        heading: "Timer, scramble, and smart-cube flow stay front and center here.",
+        body: null,
+      },
+      drill: {
+        title: "Drill",
+        eyebrow: "Drill",
+        heading: "Targeted training blocks for the cases you want to sharpen.",
+        body: "Use drills to focus on commutators, buffers, and recurring weak spots from your solve data.",
+      },
+      study: {
+        title: "Study",
+        eyebrow: "Study",
+        heading: "Review analytics, trouble cases, and personal practice collections.",
+        body: "This page brings your execution trends and weak cases together in one place.",
+      },
+      history: {
+        title: "History",
+        eyebrow: "History",
+        heading: "Recent solves and reconstruction review live here.",
+        body: "Use the latest solve cards to inspect times, memo, and CubeDB links quickly.",
+      },
+      stats: {
+        title: "Stats",
+        eyebrow: "Stats",
+        heading: "Execution trends, memo splits, and progress charts belong here.",
+        body: "This view uses your stored solve data to mirror the analytics screen direction from Figma.",
+      },
+      sessions: {
+        title: "Sessions",
+        eyebrow: "Sessions",
+        heading: "Session management and drill groups can move into this view.",
+        body: "Until real session grouping exists, this screen summarizes the recent solve set as one active session.",
+      },
     };
+    const currentView = viewConfig[this.state.activeView] || viewConfig.solve;
+    const selectedCommGroups = this.groupCommBreakdown(
+      (this.state.selectedSolveDetails && this.state.selectedSolveDetails.comm_stats) || []
+    );
+    let mainView;
+
+    if (this.state.activeView === "drill") {
+      mainView = (
+        <section className="drill_screen view_panel">
+          <div className="section_header">
+            <div>
+              <div className="placeholder_title">Drill Builder</div>
+              <div className="placeholder_text">{currentView.body}</div>
+            </div>
+          </div>
+          <div className="drill_tabs">
+            <button type="button" className="drill_tab drill_tab_active">
+              Corners
+            </button>
+            <button type="button" className="drill_tab">Edges</button>
+            <button type="button" className="drill_tab">Parity</button>
+            <button type="button" className="drill_tab">Flip/Twists</button>
+          </div>
+          <div className="drill_filters">
+            <div className="drill_filter_group">
+              <span className="drill_filter_label">Filter Drill Sets</span>
+              <div className="drill_filter_chips">
+                <button type="button" className="drill_chip drill_chip_active">
+                  Commutators
+                </button>
+                <button type="button" className="drill_chip">3-Style</button>
+                <button type="button" className="drill_chip">Unmastered</button>
+              </div>
+            </div>
+          </div>
+          <div className="drill_card_list">
+            <article className="drill_card">
+              <div>
+                <div className="drill_card_title">Corner Commutators (Pure)</div>
+                <div className="drill_card_text">Warm up with pure commutators around your current corner buffer.</div>
+              </div>
+              <div className="drill_card_side">
+                <div className="drill_badge">Level 1</div>
+                <button type="button" className="drill_action_button">
+                  Start Drill
+                </button>
+              </div>
+            </article>
+            <article className="drill_card">
+              <div>
+                <div className="drill_card_title">Buffer UFR Distance</div>
+                <div className="drill_card_text">Review cases that travel far from your corner buffer and slow recognition.</div>
+              </div>
+              <div className="drill_card_side">
+                <div className="drill_badge">25 cases</div>
+                <button type="button" className="drill_action_button drill_action_button_secondary">
+                  Resume Practice
+                </button>
+              </div>
+            </article>
+            <article className="drill_card">
+              <div>
+                <div className="drill_card_title">Edge Flips & Corner Twists</div>
+                <div className="drill_card_text">Quick isolated rep set for the special cases that still break flow.</div>
+              </div>
+              <div className="drill_card_side">
+                <div className="drill_badge">Mixed</div>
+                <button type="button" className="drill_action_button drill_action_button_secondary">
+                  Configure Drill
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      );
+    } else if (this.state.activeView === "study") {
+      mainView = (
+        <section className="study_screen view_panel">
+          <div className="section_header">
+            <div>
+              <div className="placeholder_title">Study & Analytics</div>
+              <div className="placeholder_text">{currentView.body}</div>
+            </div>
+          </div>
+          <div className="study_tabs">
+            <button type="button" className="study_tab study_tab_active">
+              Analytics
+            </button>
+            <button type="button" className="study_tab">Trouble Algs</button>
+            <button type="button" className="study_tab">Library</button>
+          </div>
+          <div className="study_chart_card">
+            <div className="chart_card_header">
+              <div>
+                <div className="chart_card_title">Execution Performance</div>
+                <div className="study_stat_caption">Avg. execution time</div>
+              </div>
+              <div className="study_hero_stat">{execText}</div>
+            </div>
+            {chartPath ? (
+              <div className="chart_canvas">
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  <path className="chart_grid" d="M 0 20 L 100 20 M 0 50 L 100 50 M 0 80 L 100 80" />
+                  <path className="chart_area" d={`${chartPath} L 100 100 L 0 100 Z`} />
+                  <path className="chart_line" d={chartPath} />
+                </svg>
+              </div>
+            ) : (
+              <div className="empty_chart_state">Log more solves to unlock analytics here.</div>
+            )}
+          </div>
+          <div className="study_section_header">
+            <div className="chart_card_title">Trouble Algorithms</div>
+            <div className="section_meta">From recent solves</div>
+          </div>
+          <div className="study_problem_list">
+            {troubleSolves.length ? (
+              troubleSolves.map((solve, index) => (
+                <article key={solve.date || index} className="study_problem_card">
+                  <div>
+                    <div className="study_problem_title">Case #{sessionCount - index}</div>
+                    <div className="study_problem_text">{solve.txt_solve ? solve.txt_solve.split("\n")[0] : "Slow recognition pattern"}</div>
+                  </div>
+                  <div className="study_problem_side">
+                    <strong>{this.convert_sec_to_format(solve.time_solve)}</strong>
+                    <span>{formatDate(solve.date)}</span>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="empty_state_card">
+                <div className="placeholder_eyebrow">Study</div>
+                <div className="placeholder_text">Your slowest cases will show up here after a few logged solves.</div>
+              </div>
+            )}
+          </div>
+          <div className="study_section_header">
+            <div className="chart_card_title">Personal Library</div>
+            <div className="section_meta">Saved drill stacks</div>
+          </div>
+          <div className="study_library_grid">
+            <article className="study_library_card">
+              <div className="study_library_title">Book 1: 3-Style Corners</div>
+              <div className="study_library_text">Foundational review deck for corner commutators and setup moves.</div>
+            </article>
+            <article className="study_library_card">
+              <div className="study_library_title">Edge Commutator Drills</div>
+              <div className="study_library_text">Focused practice stack for edge buffer transitions and recognition.</div>
+            </article>
+          </div>
+        </section>
+      );
+    } else if (this.state.activeView === "history") {
+      mainView = (
+        <section className="history_screen view_panel">
+          <div className="section_header">
+            <div>
+              <div className="placeholder_title">Recent Solves</div>
+              <div className="placeholder_text">{currentView.body}</div>
+            </div>
+            <div className="section_meta">{sessionCount} solves</div>
+          </div>
+          <div className="history_overview">
+            <div className="overview_card">
+              <span>Latest</span>
+              <strong>
+                {latestSolve
+                  ? latestSolve.DNF
+                    ? `DNF (${this.convert_sec_to_format(latestSolve.time_solve)})`
+                    : this.convert_sec_to_format(latestSolve.time_solve)
+                  : "--"}
+              </strong>
+            </div>
+            <div className="overview_card">
+              <span>Success</span>
+              <strong>{accuracyText}</strong>
+            </div>
+            <div className="overview_card">
+              <span>Trend</span>
+              <strong>{trendLabel}</strong>
+            </div>
+          </div>
+          <div className="history_list">
+            {recentSolves.length ? (
+              recentSolves.map((solve, index) => (
+                <article key={solve.date || index} className="history_card">
+                  <div className="history_card_top">
+                    <div>
+                      <div className="history_card_title">Solve {sessionCount - index}</div>
+                      <div className="history_card_subtitle">{formatDate(solve.date)}</div>
+                    </div>
+                    <div className="history_card_time">
+                      {solve.DNF
+                        ? `DNF (${this.convert_sec_to_format(solve.time_solve)})`
+                        : this.convert_sec_to_format(solve.time_solve)}
+                    </div>
+                  </div>
+                  <div className="history_card_metrics">
+                    <div className="history_metric_chip">
+                      <span>Memo</span>
+                      <strong>{this.convert_sec_to_format(solve.memo_time)}</strong>
+                    </div>
+                    <div className="history_metric_chip">
+                      <span>Exec</span>
+                      <strong>{this.convert_sec_to_format(solve.exe_time)}</strong>
+                    </div>
+                    <div className="history_metric_chip">
+                      <span>Flow</span>
+                      <strong>{solve.fluidness ? `${solve.fluidness}%` : "--"}</strong>
+                    </div>
+                  </div>
+                  <div className="history_card_actions">
+                    <button
+                      type="button"
+                      className="secondary_chip"
+                      onClick={() => this.openSolveDetails(solve)}
+                    >
+                      Details
+                    </button>
+                    {solve.link ? (
+                      <a
+                        className="secondary_chip"
+                        href={solve.link}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        CubeDB
+                      </a>
+                    ) : (
+                      <button type="button" className="secondary_chip" disabled>
+                        CubeDB
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="empty_state_card">
+                <div className="placeholder_eyebrow">History</div>
+                <div className="placeholder_text">
+                  Complete a solve and this screen will start filling with recent attempts.
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      );
+    } else if (this.state.activeView === "stats" || this.state.activeView === "sessions") {
+      if (this.state.activeView === "stats") {
+        mainView = (
+          <section className="stats_screen view_panel">
+            <div className="stats_header">
+              <div>
+                <div className="placeholder_title">Session Stats</div>
+                <div className="placeholder_text">{currentView.body}</div>
+              </div>
+              <div className="section_meta">{completedCount} completed</div>
+            </div>
+            <div className="stats_grid">
+              <div className="stats_tile">
+                <span>Ao5</span>
+                <strong>{ao5Text}</strong>
+              </div>
+              <div className="stats_tile">
+                <span>Ao12</span>
+                <strong>{this.formatSummaryValue(this.state.averages.ao12)}</strong>
+              </div>
+              <div className="stats_tile">
+                <span>Ao50</span>
+                <strong>{this.formatSummaryValue(this.state.averages.aoAll)}</strong>
+              </div>
+              <div className="stats_tile">
+                <span>Mean</span>
+                <strong>{this.formatSummaryValue(this.state.averages.current)}</strong>
+              </div>
+            </div>
+            <div className="stats_breakdown_grid">
+              <div className="breakdown_card">
+                <span>Memo Avg</span>
+                <strong>{memoText}</strong>
+              </div>
+              <div className="breakdown_card">
+                <span>Exec Avg</span>
+                <strong>{execText}</strong>
+              </div>
+              <div className="breakdown_card">
+                <span>DNFs</span>
+                <strong>{dnfCount}</strong>
+              </div>
+              <div className="breakdown_card">
+                <span>Best Ao12</span>
+                <strong>{this.formatSummaryValue(this.state.averages.bao12.time)}</strong>
+              </div>
+            </div>
+            <div className="personal_best_card">
+              <div>
+                <div className="placeholder_eyebrow">Personal Best</div>
+                <div className="personal_best_value">
+                  {bestSingle === null ? "--" : this.convert_sec_to_format(bestSingle)}
+                </div>
+              </div>
+              <div className="personal_best_badge">
+                {trendLabel === "Trending faster" ? "Up" : "PB"}
+              </div>
+            </div>
+            <div className="chart_card">
+              <div className="chart_card_header">
+                <div className="chart_card_title">Session Progress</div>
+                <div className="section_meta">Last {chartTimes.length || 0} solves</div>
+              </div>
+              {chartPath ? (
+                <div className="chart_canvas">
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <path className="chart_grid" d="M 0 20 L 100 20 M 0 50 L 100 50 M 0 80 L 100 80" />
+                    <path className="chart_area" d={`${chartPath} L 100 100 L 0 100 Z`} />
+                    <path className="chart_line" d={chartPath} />
+                  </svg>
+                </div>
+              ) : (
+                <div className="empty_chart_state">Solve a few attempts to draw your progress chart.</div>
+              )}
+            </div>
+          </section>
+        );
+        } else {
+          const latestSessionTime =
+          recentSolves.length && recentSolves[0].time_solve
+            ? this.convert_sec_to_format(recentSolves[0].time_solve)
+            : "--";
+        mainView = (
+          <section className="sessions_screen view_panel">
+            <div className="section_header">
+              <div>
+                <div className="placeholder_title">Session Dashboard</div>
+                <div className="placeholder_text">{currentView.body}</div>
+              </div>
+              <button
+                type="button"
+                className="session_create_button"
+                onClick={this.startNewSession}
+              >
+                Start New Session
+              </button>
+            </div>
+            <div className="session_hero">
+              <div className="session_hero_main">
+                <div className="placeholder_eyebrow">Current Training Block</div>
+                <div className="session_hero_title">
+                  {activeSession ? activeSession.name : "3x3 BLD"}
+                </div>
+                <div className="session_hero_text">
+                  {sessionCount
+                    ? `${sessionCount} solves logged in the active session.`
+                    : "No solves logged yet."}
+                </div>
+              </div>
+              <div className="session_hero_stats">
+                <div>
+                  <span>PB</span>
+                  <strong>
+                    {activeSessionSummary.bestSingle === null
+                      ? "--"
+                      : this.convert_sec_to_format(activeSessionSummary.bestSingle)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Success</span>
+                  <strong>{activeSessionSummary.successText}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="session_cards">
+              <article className="session_card">
+                <div>
+                  <div className="session_card_title">Active Session</div>
+                  <div className="session_card_subtitle">
+                    {activeSession ? activeSession.name : "No active session"}
+                  </div>
+                </div>
+                <div className="session_card_value">{sessionCount} solves</div>
+              </article>
+              <article className="session_card">
+                <div>
+                  <div className="session_card_title">Saved Sessions</div>
+                  <div className="session_card_subtitle">
+                    {sessions.length ? `${sessions.length} available locally` : "No sessions yet"}
+                  </div>
+                </div>
+                <div className="session_card_value">Current {activeSession ? sessions.findIndex((session) => session.id === activeSession.id) + 1 : "--"}</div>
+              </article>
+              <article className="session_card">
+                <div>
+                  <div className="session_card_title">Latest Attempt</div>
+                  <div className="session_card_subtitle">
+                    {recentSolves[0] ? formatDate(recentSolves[0].date) : "No solves yet"}
+                  </div>
+                </div>
+                <div className="session_card_value">{latestSessionTime}</div>
+              </article>
+              <article className="session_card">
+                <div>
+                  <div className="session_card_title">Memo Average</div>
+                  <div className="session_card_subtitle">Current session</div>
+                </div>
+                <div className="session_card_value">{memoText}</div>
+              </article>
+            </div>
+            <div className="session_recent_block">
+              <div className="chart_card_header">
+                <div className="chart_card_title">Saved Sessions</div>
+                <div className="section_meta">{sessions.length} total</div>
+              </div>
+              <div className="session_recent_list">
+                {sessions.length ? (
+                  sessions.slice(0, 12).map((session, index) => {
+                    const summary = this.getSessionSummary(session);
+                    const latestSolve = summary.latest;
+
+                    return (
+                    <div
+                      key={session.id || index}
+                      className="session_recent_row"
+                      role="button"
+                      tabIndex="0"
+                      onClick={() => this.activateSession(session.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          this.activateSession(session.id);
+                        }
+                      }}
+                    >
+                      <span>{session.id === this.state.activeSessionId ? "Active" : `#${sessions.length - index}`}</span>
+                      <strong>
+                        {session.name}
+                      </strong>
+                      <span>
+                        {latestSolve
+                          ? this.convert_sec_to_format(latestSolve.time_solve)
+                          : `${summary.count} solves`}
+                      </span>
+                    </div>
+                    );
+                  })
+                ) : (
+                  <div className="empty_chart_state">New sessions will show up here once you create them.</div>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      }
+    } else {
+      mainView = (
+        <section className="solve_screen">
+          <div className="timer_stage">
+            <Timer
+              scramble={this.state.scramble}
+              solve_status={this.state.solve_status}
+              onStart={(timer_start) => this.handle_onStart_timer(timer_start)}
+              onStop={(timer_finish) => this.handle_onStop_timer(timer_finish)}
+              minStopDelayMs={350}
+              footer={
+                <div className="solve_metrics">
+                  <div className="split_metric">
+                    <div className="split_metric_label">Exec</div>
+                    <div className="split_metric_value">{execText}</div>
+                  </div>
+                  <div className="split_metric_divider"></div>
+                  <div className="split_metric">
+                    <div className="split_metric_label">Memo</div>
+                    <div className="split_metric_value">{memoText}</div>
+                  </div>
+                </div>
+              }
+            />
+          </div>
+
+          <div className="solve_summary_bar">
+            <div className="summary_pill">
+              <span className="summary_pill_label">Ao5</span>
+              <span className="summary_pill_value">{ao5Text}</span>
+            </div>
+            <div className="summary_pill">
+              <span className="summary_pill_label">Accuracy</span>
+              <span className="summary_pill_value">{accuracyText}</span>
+            </div>
+          </div>
+
+          {this.state.connectionNotice ? (
+            <div className="connection_notice" role="alert">
+              {this.state.connectionNotice}
+            </div>
+          ) : null}
+
+        </section>
+      );
+    }
+
     return (
       <React.Fragment>
         <div className="application">
           <Helmet id="background_page"></Helmet>
         </div>
-        <div class="container container_2">
-          <div class="logo">
-            <img
-              class="logo_img"
-              src={logo}
-              // className="rounded mx-auto"
-              alt=""
-            />
-          </div>
-          <div class="connect_cube">
-                <ConnectCube onConnect={this.connectGanCubeDirect} />
-                {this.state.connectionNotice ? (
-                  <div className="alert alert-warning m-1" role="alert">
-                    {this.state.connectionNotice}
-                  </div>
-                ) : null}
-          </div>
-          <div class="trainbld_header">TrainBLD</div>
-          <div
-            className="social btn-toolbar"
-            role="group"
-            aria-label="Basic example"
-          >
-            <button
-              class="youtube btn btn-primary btn-sm m-1 text-center"
-              onClick={() =>
-                window.open(
-                  "https://www.youtube.com/channel/UCVGKCZFamCuYXiln9w3Cnxw"
-                )
-              }
-            >
-              Youtube
-            </button>
-            <button
-              className="github btn btn-primary m-1 text-center "
-              onClick={() => window.open("https://github.com/RotoHands")}
-            >
-              Github
-            </button>
-            <button
-              className="support btn btn-primary m-1"
-              onClick={() =>
-                window.open(
-                  "https://www.paypal.com/donate?hosted_button_id=X9X9VZEAYK3DJ"
-                )
-              }
-            >
-              Support :)
-            </button>
-          </div>
-          <div className="rotem_ifrach">By Rotem Ifrach</div>
-          <div class="setting">
-            <Setting
-              cur_setting={this.state.parse_settings}
-              export_setting={this.handle_export_setting}
-              id={this.state.parse_settings["ID"]}
-            />
-          </div>
-          <div class="stats_bar">
-            <a
-              className="stats_bar_reset"
-              title="delete all stats"
-              onClick={this.handle_reset_stats}
-              href="#"
-            >
-              Reset/
-            </a>
-            <a
-              class="stats_bar_export_stats"
-              href={this.state.url_stats}
-              download="solves.csv"
-              id="export_solves"
-            >
-              Export {""}
-            </a>
+        <div className="app_shell">
+          <div className="app_frame">
+            <header className="app_header">
+              <button
+                type="button"
+                className="icon_button"
+                aria-label="Open menu"
+                onClick={() => this.setState({ showMenu: true })}
+              >
+                <span className="icon_menu">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </span>
+              </button>
+              <div className="header_title_group">
+                <div className="header_title">{currentView.title}</div>
+              </div>
+              <button
+                type="button"
+                className="icon_button"
+                aria-label="Open settings"
+                onClick={() => this.setState({ showSettings: true })}
+              >
+                <span className="icon_gear"></span>
+              </button>
+            </header>
 
-            <a
-              class="stats_bar_plus_2"
-              href="#"
-              title="+2 last solve"
-              onClick={() => this.plus_two_last_solve()}
+            {this.state.activeView === "solve" ? (
+              <div
+                className="scramble_block"
+                onClick={this.copyScramble}
+                role="button"
+                tabIndex="0"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    this.copyScramble();
+                  }
+                }}
+              >
+                <div className="scramble_label">Scramble</div>
+                <div className="scramble_value">{this.state.scramble}</div>
+              </div>
+            ) : null}
+
+            <main
+              className={`main_view ${
+                this.state.activeView === "solve" ? "main_view_solve" : "main_view_page"
+              }`}
             >
-              {"  "}
-              +2/
-            </a>
-            <a
-              class="stats_bar_dnf_last_solve"
-              href="#"
-              title="DNF last solve"
-              onClick={() => this.dnf_last_solve()}
-            >
-              DNF/
-            </a>
-            <a
-              class="stats_bar_delete_last_solve"
-              href="#"
-              title="delete last solve"
-              value={this.state.solves_stats.length}
-              onClick={() => this.delete_last_solve()}
-            >
-              {""}
-              Delete
-            </a>
-          </div>
-          <div class="stats">
-            <table class="best_averages">
-              <tbody>
-                <tr>
-                  <th>#</th>
-                  <th>current</th>
-                  <th>best</th>
-                </tr>
-                <tr>
-                  <td>bo1</td>
-                  <td>
-                    {this.state.averages["current"] != null
-                      ? this.convert_sec_to_format(
-                          this.state.averages["current"]
-                        )
-                      : ""}
-                  </td>
-                  <td>
-                    {this.state.averages["best"]["time"] != 10000
-                      ? this.convert_sec_to_format(
-                          this.state.averages["best"]["time"]
-                        )
-                      : ""}
-                  </td>
-                </tr>
-                <tr>
-                  <td>mo3</td>
-                  <td>
-                    {this.state.averages["mo3"] != ""
-                      ? this.convert_sec_to_format(this.state.averages["mo3"])
-                      : ""}
-                  </td>
-                  <td>
-                    {this.state.averages["bmo3"]["time"] != 10000
-                      ? this.convert_sec_to_format(
-                          this.state.averages["bmo3"]["time"]
-                        )
-                      : ""}
-                  </td>
-                </tr>
-                <tr>
-                  <td>ao5</td>
-                  <td>
-                    {this.state.averages["ao5"] != ""
-                      ? this.convert_sec_to_format(this.state.averages["ao5"])
-                      : ""}
-                  </td>
-                  <td>
-                    {this.state.averages["bao5"]["time"] != 10000
-                      ? this.convert_sec_to_format(
-                          this.state.averages["bao5"]["time"]
-                        )
-                      : ""}
-                  </td>
-                </tr>
-                <tr>
-                  <td>ao12</td>
-                  <td>
-                    {this.state.averages["ao12"] != ""
-                      ? this.convert_sec_to_format(this.state.averages["ao12"])
-                      : ""}
-                  </td>
-                  <td>
-                    {this.state.averages["bao12"]["time"] != 10000
-                      ? this.convert_sec_to_format(
-                          this.state.averages["bao12"]["time"]
-                        )
-                      : ""}
-                  </td>
-                </tr>
-                <tr>
-                  <td colSpan="3" style={{ whiteSpace: "pre-wrap" }}>
-                    {this.convert_sec_to_format(this.state.averages["aoAll"]) +
-                      "(" +
-                      this.convert_sec_to_format(this.state.averages["memo"]) +
-                      ", " +
-                      this.convert_sec_to_format(this.state.averages["exe"]) +
-                      ") " +
-                      this.state.averages["fluid"] +
-                      "%\t" +
-                      this.state.averages["success"]}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="solve_stats">
-            <SolveStats
-              id="upper_page"
-              renderTable={this.state.renderTable}
-              solve_stats={this.state.solves_stats}
-              initStats={this.initialStatsFromLocalstorage}
-              renderTableData={this.renderTableData}
-            />
-          </div>
-          <div class="scrambler">
-            <Scrambler
-              onReset={this.handle_reset_cube}
-              scramble={this.state.scramble}
-              onClick_scramble={this.handle_scramble}
-              onClick_last_scramble={this.handle_last_scramble}
-            />{" "}
-          </div>
-          <div class="timer">
-            <div class="moves_scramble">{this.state.moves_to_show}</div>
-            <Timer
-              // parsed_solve_txt={this.state.parsed_solve_txt}
-              scramble={this.state.scramble}
-              solve_status={this.state.solve_status}
-              onStart={(timer_start) => this.handle_onStart_timer(timer_start)}
-              onStop={(timer_finish) => this.handle_onStop_timer(timer_finish)}
-            />
+              {mainView}
+            </main>
+
+            <nav className="bottom_nav" aria-label="Primary">
+              <button
+                type="button"
+                className={`nav_item ${this.state.activeView === "solve" ? "nav_item_active" : ""}`}
+                onClick={() => this.setState({ activeView: "solve" })}
+              >
+                <span className="nav_icon nav_icon_solve"></span>
+                <span className="nav_label">Solve</span>
+              </button>
+              <button
+                type="button"
+                className={`nav_item ${this.state.activeView === "history" ? "nav_item_active" : ""}`}
+                onClick={() => this.setState({ activeView: "history" })}
+              >
+                <span className="nav_icon nav_icon_history"></span>
+                <span className="nav_label">History</span>
+              </button>
+              <button
+                type="button"
+                className={`nav_item ${this.state.activeView === "stats" ? "nav_item_active" : ""}`}
+                onClick={() => this.setState({ activeView: "stats" })}
+              >
+                <span className="nav_icon nav_icon_stats"></span>
+                <span className="nav_label">Stats</span>
+              </button>
+              <button
+                type="button"
+                className={`nav_item ${this.state.activeView === "sessions" ? "nav_item_active" : ""}`}
+                onClick={() => this.setState({ activeView: "sessions" })}
+              >
+                <span className="nav_icon nav_icon_sessions"></span>
+                <span className="nav_label">Sessions</span>
+              </button>
+            </nav>
           </div>
         </div>
+
+        {this.state.showMenu ? (
+          <div
+            className="solve_modal_backdrop"
+            onClick={() => this.setState({ showMenu: false })}
+          >
+            <div className="menu_overlay" onClick={(event) => event.stopPropagation()}>
+              <div className="solve_modal_header">
+                <div>
+                  <div className="section_label">Menu</div>
+                  <div className="solve_modal_title">Navigate and connect</div>
+                </div>
+                <button
+                  type="button"
+                  className="solve_modal_close"
+                  aria-label="Close menu"
+                  onClick={() => this.setState({ showMenu: false })}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="menu_list">
+                <button
+                  type="button"
+                  className="menu_item menu_item_primary"
+                  onClick={() => this.setState({ showMenu: false }, this.connectGanCubeDirect)}
+                >
+                  Connect cube
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, showSettings: true })}
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "drill" })}
+                >
+                  Drill
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "study" })}
+                >
+                  Study
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "history" })}
+                >
+                  History
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "stats" })}
+                >
+                  Stats
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "sessions" })}
+                >
+                  Sessions
+                </button>
+                <button
+                  type="button"
+                  className="menu_item"
+                  onClick={() => this.setState({ showMenu: false, activeView: "solve" })}
+                >
+                  Solve
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {this.state.showSettings ? (
+          <div
+            className="solve_modal_backdrop"
+            onClick={() => this.setState({ showSettings: false })}
+          >
+            <div className="settings_overlay" onClick={(event) => event.stopPropagation()}>
+              <div className="solve_modal_header">
+                <div>
+                  <div className="section_label">Settings</div>
+                  <div className="solve_modal_title">Settings</div>
+                </div>
+                <button
+                  type="button"
+                  className="solve_modal_close"
+                  aria-label="Close settings"
+                  onClick={() => this.setState({ showSettings: false })}
+                >
+                  ×
+                </button>
+              </div>
+              <Setting
+                embedded
+                cur_setting={this.state.parse_settings}
+                export_setting={this.handle_export_setting}
+                id={this.state.parse_settings["ID"]}
+                onManageCube={this.connectGanCubeDirect}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {this.state.showLastSolveDetails ? (
+          <div
+            className="solve_modal_backdrop"
+            onClick={() =>
+              this.setState({
+                showLastSolveDetails: false,
+                loadingSolveDetails: false,
+                selectedSolveDetails: null,
+              })
+            }
+          >
+            <div className="solve_modal" onClick={(event) => event.stopPropagation()}>
+              <div className="solve_modal_header">
+                <div>
+                  <div className="section_label">Last solve</div>
+                  <div className="solve_modal_title">Parsed description</div>
+                </div>
+                <button
+                  type="button"
+                  className="solve_modal_close"
+                  aria-label="Close solve details"
+                  onClick={() =>
+                    this.setState({
+                      showLastSolveDetails: false,
+                      loadingSolveDetails: false,
+                      selectedSolveDetails: null,
+                    })
+                  }
+                >
+                  ×
+                </button>
+              </div>
+              {this.state.selectedSolveDetails ? (
+                <div className="solve_modal_body">
+                  <div className="history_card_metrics">
+                    <div className="history_metric_chip">
+                      <span>Total</span>
+                      <strong>{this.convert_sec_to_format(this.state.selectedSolveDetails.time_solve)}</strong>
+                    </div>
+                    <div className="history_metric_chip">
+                      <span>Memo</span>
+                      <strong>{this.convert_sec_to_format(this.state.selectedSolveDetails.memo_time)}</strong>
+                    </div>
+                    <div className="history_metric_chip">
+                      <span>Exec</span>
+                      <strong>{this.convert_sec_to_format(this.state.selectedSolveDetails.exe_time)}</strong>
+                    </div>
+                    <div className="history_metric_chip">
+                      <span>Flow</span>
+                      <strong>
+                        {this.state.selectedSolveDetails.fluidness
+                          ? `${this.state.selectedSolveDetails.fluidness}%`
+                          : "--"}
+                      </strong>
+                    </div>
+                  </div>
+                  {this.state.selectedSolveDetails.comm_stats &&
+                  this.state.selectedSolveDetails.comm_stats.length ? (
+                    <div className="session_recent_block">
+                      <div className="chart_card_header">
+                        <div className="chart_card_title">Comm Breakdown</div>
+                        <div className="section_meta">
+                          {this.state.selectedSolveDetails.comm_stats.length} events
+                        </div>
+                      </div>
+                      <div className="solve_modal_body solve_modal_body_compact">
+                        {selectedCommGroups.edges.length ? (
+                          <div className="comm_summary_line">
+                            <strong>Edges:</strong> {selectedCommGroups.edges.join(", ")}
+                          </div>
+                        ) : null}
+                        {selectedCommGroups.corners.length ? (
+                          <div className="comm_summary_line">
+                            <strong>Corners:</strong> {selectedCommGroups.corners.join(", ")}
+                          </div>
+                        ) : null}
+                        {selectedCommGroups.parity ? (
+                          <div className="comm_summary_line">
+                            <strong>Parity</strong>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {this.state.selectedSolveDetails.move_timeline &&
+                  this.state.selectedSolveDetails.move_timeline.length ? (
+                    <div className="session_recent_block">
+                      <div className="chart_card_header">
+                        <div className="chart_card_title">Move Timeline</div>
+                        <div className="section_meta">
+                          {this.state.selectedSolveDetails.move_timeline.length} moves
+                        </div>
+                      </div>
+                      <div className="session_recent_list">
+                        {this.state.selectedSolveDetails.move_timeline.slice(0, 40).map((move) => (
+                          <div key={move.id || move.index} className="session_recent_row">
+                            <span>#{move.index}</span>
+                            <strong>{move.notation || "--"}</strong>
+                            <span>
+                              {move.time_offset !== null && move.time_offset !== undefined
+                                ? `${move.time_offset.toFixed(2)}s`
+                                : "--"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {this.state.loadingSolveDetails ? (
+                <div className="solve_modal_body">Loading server details...</div>
+              ) : null}
+              <pre className="solve_modal_body">
+                {this.state.parsed_solve_txt || "No parsed solve text available yet."}
+              </pre>
+            </div>
+          </div>
+        ) : null}
       </React.Fragment>
     );
   };
