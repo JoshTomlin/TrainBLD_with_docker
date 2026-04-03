@@ -9,13 +9,13 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY ./requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r ./app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-ENV FLASK_APP=./app/flask_analyze_server.py
+ENV FLASK_APP=/app/flask_analyze_server.py
 COPY . /app
 
 CMD ["python", "-u", "-m",  "flask", "run", "--host=0.0.0.0", "--port=8080"]
